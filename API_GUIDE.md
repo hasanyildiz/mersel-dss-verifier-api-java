@@ -329,8 +329,8 @@ curl -X POST "http://localhost:8086/api/v1/verify/timestamp" \
 
 ### 5. XAdES-A Arşiv İmzası (Comprehensive)
 ```bash
-curl -X POST "http://localhost:8086/api/v1/verify/signature" \
-  -F "signedDocument=@archive_signed.xml" \
+curl -X POST "http://localhost:8092/api/v1/verify/signature" \
+  -F "signedDocument=@hasan-invoice.xml" \
   -F "level=COMPREHENSIVE"
 ```
 

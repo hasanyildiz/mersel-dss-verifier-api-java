@@ -361,6 +361,7 @@
     </dependencies>
 
     <build>
+        <finalName>app</finalName>
         <!--
             Resource filtering — dss-messages*.properties exclude
             ===========================================================

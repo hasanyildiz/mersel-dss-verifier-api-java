@@ -31,19 +31,18 @@ RUN apt-get update && \
     && rm -rf /var/lib/apt/lists/*
 
 # Create app user (security best practice)
-RUN groupadd -r verifyapi && useradd -r -g verifyapi verifyapi
-
+RUN groupadd -r -g 501 efaturaprod && useradd --no-log-init -m -r -u 501 -g efaturaprod efaturaprod
 # Create directories
-RUN mkdir -p /app/logs /app/certs /app/config && \
-    chown -R verifyapi:verifyapi /app
+RUN mkdir -p /app/logs /app/certs && \
+    chown -R efaturaprod:efaturaprod /app
 
 WORKDIR /app
 
 # Copy jar from builder stage
-COPY --from=builder /build/target/mersel-dss-verify-api-*.jar /app/app.jar
+COPY --from=builder /build/target/app.jar /app/app.jar
 
 # Switch to non-root user
-USER verifyapi
+USER efaturaprod
 
 # Environment variables with defaults
 ENV LOG_PATH=/app/logs
