@@ -7,6 +7,17 @@ ve bu proje [Semantic Versioning 2.0.0](https://semver.org/spec/v2.0.0.html) kul
 
 ## [Unreleased]
 
+### Fixed
+- `MDSS-TR-KEYUSAGE-PROFILE`, DSS'in zaten reddettiği imzanın kararını
+  `INDETERMINATE` / `CHAIN_CONSTRAINTS_FAILURE`'a çeviriyordu; ör. kurcalanmış
+  belgede `TOTAL_FAILED` / `HASH_FAILURE`, iptal edilmiş sertifikada `REVOKED`
+  kayboluyordu. Karar artık yalnız DSS imzayı geçirdiyse değişir; DSS
+  reddettiyse indication ve subIndication korunur, ihlal yalnız
+  `appliedRejections` ve `rootCause` ile eklenir.
+- Herhangi bir Mersel ret kodu, DSS'in `SIG_CONSTRAINTS_FAILURE` "(Kritik
+  hata)" satırını `validationErrors`'tan siliyordu. Bastırma artık yalnız bu
+  hatayı açıklayan `MDSS-XADES-LEGACY-TR-MISSING-SP-REFERENCE` için yapılır.
+
 ## [1.2.0] - 2026-10-11
 
 > **Canlı ortam notu:** Bu sürüm doğrulama kararlarını değiştirir; değişikliklerin

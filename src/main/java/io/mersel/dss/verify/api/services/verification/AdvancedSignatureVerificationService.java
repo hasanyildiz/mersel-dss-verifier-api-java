@@ -1291,12 +1291,13 @@ public class AdvancedSignatureVerificationService {
             indication = Indication.TOTAL_PASSED;
             subIndication = null;
         }
-        if (keyUsageProfileRejection != null) {
-            // DSS kararı ne olursa olsun profil ihlali imzayı geçersiz kılar.
-            // DSS'in asıl kararı rejection objesinin originalIndication
-            // alanında saklıdır. DSS'in bu durumdaki kendi semantiğiyle
-            // (KeyUsage constraint FAIL → INDETERMINATE / CHAIN_CONSTRAINTS_FAILURE)
-            // paralel bir verdict yazıyoruz.
+        if (keyUsageProfileRejection != null
+                && (indication == Indication.TOTAL_PASSED || indication == Indication.PASSED)) {
+            // Profil ihlali yalnız geçen imzanın kararını değiştirir; DSS'in
+            // KeyUsage FAIL semantiğiyle paralel: INDETERMINATE /
+            // CHAIN_CONSTRAINTS_FAILURE. DSS zaten reddettiyse (ör.
+            // TOTAL_FAILED / HASH_FAILURE, REVOKED) DSS'in kararı korunur;
+            // ihlal yalnız appliedRejections ve rootCause ile raporlanır.
             indication = Indication.INDETERMINATE;
             subIndication = SubIndication.CHAIN_CONSTRAINTS_FAILURE;
         }
@@ -2683,12 +2684,18 @@ public class AdvancedSignatureVerificationService {
         // Mersel kataloglu rejection'lar devrede mi? Verdict değişmese de
         // DSS'in jenerik SubIndication mesajının yanına Mersel tanı kodunu
         // ekliyoruz ki operatör log/grep ile hızlıca filtreleyebilsin.
-        boolean anyMerselRejection = false;
+        // Yalnız SP referansı eksik XAdES reddi DSS'in SIG_CONSTRAINTS_FAILURE'ını
+        // açıklar; diğer kodlar (ör. MDSS-TR-KEYUSAGE-PROFILE) başka bir sorunu
+        // raporladığı için DSS'in kendi satırı korunur.
+        boolean explainsSigConstraintsFailure = false;
         if (appliedRejections != null) {
             for (AppliedRejection rejection : appliedRejections) {
                 if (rejection != null && rejection.getCode() != null) {
                     errors.add("[" + rejection.getCode() + "] " + rejection.getReason());
-                    anyMerselRejection = true;
+                    if (RejectionCode.MDSS_XADES_LEGACY_TR_MISSING_SP_REFERENCE.getCode()
+                            .equals(rejection.getCode())) {
+                        explainsSigConstraintsFailure = true;
+                    }
                 }
             }
         }
@@ -2710,13 +2717,13 @@ public class AdvancedSignatureVerificationService {
                         + "(\"…/v1.3.2/XAdES.xsd#SignedProperties\"). "
                         + "Kriptografik bütünlük doğrulandı; tolerans uygulandı.";
                 warnings.add("[" + code + "] " + detail);
-            } else if (anyMerselRejection && subIndication == SubIndication.SIG_CONSTRAINTS_FAILURE) {
+            } else if (explainsSigConstraintsFailure && subIndication == SubIndication.SIG_CONSTRAINTS_FAILURE) {
                 // Rejection enrichment devrede: Mersel kataloglu satır zaten
                 // yukarıda eklendi. Jenerik "(Kritik hata)" satırını eklemek
                 // operatöre aynı sorun için ikinci bir hata satırı gösterir
                 // ve "kaç hata var?" sayımını yanıltır; bu yüzden atlanır.
                 logger.debug("SIG_CONSTRAINTS_FAILURE detail line suppressed because "
-                        + "a Mersel rejection code is already in validationErrors "
+                        + "the Mersel rejection explaining it is already in validationErrors "
                         + "(signatureId={}).", signatureId);
             } else {
                 String subIndicationMsg = "İmza uyarısı: " + subIndication.name();

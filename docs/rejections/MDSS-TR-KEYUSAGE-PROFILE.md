@@ -37,6 +37,10 @@ değerlendirir: bit'lerden herhangi biri varsa kontrol geçer. Dolayısıyla
 listelenmiş bir politikada bile DSS'ten geçebilir. Bu kontrol DSS sonrası
 gate katmanında çalışır ve **DSS PASSED dese bile** imzayı reddeder;
 DSS'in asıl kararı `AppliedRejection.originalIndication` alanında saklanır.
+Karar yalnız DSS imzayı geçirdiyse değişir (`INDETERMINATE` /
+`CHAIN_CONSTRAINTS_FAILURE`); DSS zaten reddettiyse (ör. `TOTAL_FAILED` /
+`HASH_FAILURE`, `REVOKED`) DSS'in indication, subIndication ve hata satırları
+aynen korunur, ihlal yalnız eklenir.
 Diğer `MDSS-TR-*` kodları gibi imzanın `rootCause` alanı bu koddur; DSS de
 reddettiyse (ör. çok değerli özel politika) jenerik BBB satırının önüne
 geçer ve opt-in `failedConstraints` listesinde ilk sırada yer alır.
