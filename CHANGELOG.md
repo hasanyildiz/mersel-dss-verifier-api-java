@@ -7,6 +7,8 @@ ve bu proje [Semantic Versioning 2.0.0](https://semver.org/spec/v2.0.0.html) kul
 
 ## [Unreleased]
 
+## [1.2.0] - 2026-10-11
+
 > **Canlı ortam notu:** Bu sürüm doğrulama kararlarını değiştirir; değişikliklerin
 > bir kısmı bayrağa bağlı değildir.
 >
