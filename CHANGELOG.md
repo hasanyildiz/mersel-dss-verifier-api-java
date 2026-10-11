@@ -7,6 +7,8 @@ ve bu proje [Semantic Versioning 2.0.0](https://semver.org/spec/v2.0.0.html) kul
 
 ## [Unreleased]
 
+## [1.2.1] - 2026-10-11
+
 ### Fixed
 - `MDSS-TR-KEYUSAGE-PROFILE`, DSS'in zaten reddettiği imzanın kararını
   `INDETERMINATE` / `CHAIN_CONSTRAINTS_FAILURE`'a çeviriyordu; ör. kurcalanmış
