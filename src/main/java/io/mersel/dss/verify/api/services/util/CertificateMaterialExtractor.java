@@ -1,9 +1,12 @@
 package io.mersel.dss.verify.api.services.util;
 
 import io.mersel.dss.verify.api.models.CertificateInfo;
+import org.bouncycastle.asn1.ASN1Encodable;
 import org.bouncycastle.asn1.ASN1OctetString;
+import org.bouncycastle.asn1.ASN1Sequence;
 import org.bouncycastle.asn1.x509.CertificatePolicies;
 import org.bouncycastle.asn1.x509.PolicyInformation;
+import org.bouncycastle.asn1.x509.qualified.QCStatement;
 
 import java.io.ByteArrayInputStream;
 import java.security.MessageDigest;
@@ -26,6 +29,7 @@ public final class CertificateMaterialExtractor {
             "Digital Signature", "Non Repudiation", "Key Encipherment", "Data Encipherment",
             "Key Agreement", "Key Cert Sign", "CRL Sign", "Encipher Only", "Decipher Only"
     };
+    private static final String QC_STATEMENTS_OID = "1.3.6.1.5.5.7.1.3";
 
     private CertificateMaterialExtractor() { }
 
@@ -96,6 +100,9 @@ public final class CertificateMaterialExtractor {
             info.setCertificatePolicyOids(policies);
         } catch (Exception ignored) { }
         try {
+            info.setQcStatements(qcStatementIds(certificate));
+        } catch (Exception ignored) { }
+        try {
             Collection<List<?>> names = certificate.getSubjectAlternativeNames();
             List<String> values = new ArrayList<>();
             if (names != null) {
@@ -109,6 +116,19 @@ public final class CertificateMaterialExtractor {
             }
             info.setSubjectAlternativeNames(values);
         } catch (Exception ignored) { }
+    }
+
+    /** QCStatements uzantısındaki ibare OID'leri, sertifikadaki sırayla; uzantı yoksa boş liste. */
+    private static List<String> qcStatementIds(X509Certificate certificate) {
+        List<String> ids = new ArrayList<>();
+        byte[] extension = certificate.getExtensionValue(QC_STATEMENTS_OID);
+        if (extension != null) {
+            byte[] value = ASN1OctetString.getInstance(extension).getOctets();
+            for (ASN1Encodable statement : ASN1Sequence.getInstance(value)) {
+                ids.add(QCStatement.getInstance(statement).getStatementId().getId());
+            }
+        }
+        return ids;
     }
 
     private static List<String> sorted(Set<String> values) {

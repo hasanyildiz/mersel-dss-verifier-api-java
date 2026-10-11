@@ -2,7 +2,9 @@ package io.mersel.dss.verify.api.services.util;
 
 import eu.europa.esig.dss.model.x509.CertificateToken;
 import io.mersel.dss.verify.api.models.CertificateInfo;
+import org.bouncycastle.asn1.ASN1Encodable;
 import org.bouncycastle.asn1.ASN1ObjectIdentifier;
+import org.bouncycastle.asn1.DERSequence;
 import org.bouncycastle.asn1.x500.X500Name;
 import org.bouncycastle.asn1.x509.BasicConstraints;
 import org.bouncycastle.asn1.x509.CertificatePolicies;
@@ -13,6 +15,7 @@ import org.bouncycastle.asn1.x509.GeneralNames;
 import org.bouncycastle.asn1.x509.KeyPurposeId;
 import org.bouncycastle.asn1.x509.KeyUsage;
 import org.bouncycastle.asn1.x509.PolicyInformation;
+import org.bouncycastle.asn1.x509.qualified.QCStatement;
 import org.bouncycastle.cert.jcajce.JcaX509CertificateConverter;
 import org.bouncycastle.cert.jcajce.JcaX509v3CertificateBuilder;
 import org.bouncycastle.operator.jcajce.JcaContentSignerBuilder;
@@ -24,7 +27,9 @@ import java.security.KeyPairGenerator;
 import java.security.MessageDigest;
 import java.security.cert.X509Certificate;
 import java.security.spec.ECGenParameterSpec;
+import java.util.Arrays;
 import java.util.Base64;
+import java.util.Collections;
 import java.util.Date;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -84,6 +89,33 @@ class CertificateMaterialExtractorTest {
         assertEquals("EC", info.getPublicKeyAlgorithm());
         assertEquals(256, info.getPublicKeySize());
         assertNotNull(info.getCertificateId());
+    }
+
+    @Test
+    void exportsQcStatementIdsInCertificateOrder() throws Exception {
+        KeyPairGenerator generator = KeyPairGenerator.getInstance("EC");
+        generator.initialize(new ECGenParameterSpec("secp256r1"));
+        KeyPair pair = generator.generateKeyPair();
+        X500Name name = new X500Name("CN=Nitelikli Test,O=Mersel");
+        JcaX509v3CertificateBuilder builder = new JcaX509v3CertificateBuilder(name, BigInteger.ONE,
+                new Date(System.currentTimeMillis() - 3600000), new Date(System.currentTimeMillis() + 86400000), name, pair.getPublic());
+        builder.addExtension(Extension.qCStatements, false, new DERSequence(new ASN1Encodable[] {
+                new QCStatement(new ASN1ObjectIdentifier("0.4.0.1862.1.1")),
+                new QCStatement(new ASN1ObjectIdentifier("2.16.792.1.61.0.1.5070.1.1"))}));
+        X509Certificate certificate = new JcaX509CertificateConverter().getCertificate(
+                builder.build(new JcaContentSignerBuilder("SHA256withECDSA").build(pair.getPrivate())));
+
+        CertificateInfo info = new CertificateInfo();
+        CertificateMaterialExtractor.enrich(info, certificate.getEncoded());
+
+        assertEquals(Arrays.asList("0.4.0.1862.1.1", "2.16.792.1.61.0.1.5070.1.1"), info.getQcStatements());
+    }
+
+    @Test
+    void certificateWithoutQcStatementsExportsEmptyList() throws Exception {
+        CertificateInfo info = new CertificateInfo();
+        CertificateMaterialExtractor.enrich(info, certificate("EC").getEncoded());
+        assertEquals(Collections.emptyList(), info.getQcStatements());
     }
 
     @Test

@@ -1710,9 +1710,18 @@ public class AdvancedSignatureVerificationService {
     static {
         Set<String> rollUps = new HashSet<>();
         rollUps.add("BBB_XCV_SUB");      // "Is the SubXCV conclusion valid?"
-        rollUps.add("BBB_XCV_ICTIVRSC"); // "Is cert chain trusted in validation root system cert?"
+        rollUps.add("BBB_XCV_ICTIVRSC"); // "Is the current time in the validity range of the signer's certificate?"
         XCV_ROLL_UP_KEYS = Collections.unmodifiableSet(rollUps);
     }
+
+    /**
+     * CV bloğunda sertifika bağlamından bağımsız constraint'ler: XCV
+     * INDETERMINATE/FAILED olsa bile CASCADE değil ROOT_CAUSE sayılır.
+     * {@code BBB_CV_IRDOF} — imzalanan referans verisi bulunamadı (örn. ayrık
+     * imzanın özgün belgesi gönderilmedi); sertifika durumundan etkilenmez.
+     */
+    private static final Set<String> CV_INDEPENDENT_KEYS =
+            Collections.unmodifiableSet(new HashSet<>(Collections.singletonList("BBB_CV_IRDOF")));
 
     /**
      * DSS DetailedReport'taki BBB <em>FAIL</em> constraint'lerini yapısal
@@ -1892,6 +1901,9 @@ public class AdvancedSignatureVerificationService {
                 && key != null
                 && XCV_ROLL_UP_KEYS.contains(key)) {
             return FailureCategory.DERIVED;
+        }
+        if (kind == BbbBlockKind.CV && key != null && CV_INDEPENDENT_KEYS.contains(key)) {
+            return FailureCategory.ROOT_CAUSE;
         }
         if ((kind == BbbBlockKind.SAV || kind == BbbBlockKind.CV)
                 && xcvIndeterminateOrFailed) {

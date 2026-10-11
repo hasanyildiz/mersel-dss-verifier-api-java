@@ -1,5 +1,6 @@
 package io.mersel.dss.verify.api.services.util;
 
+import eu.europa.esig.dss.diagnostic.CertificateWrapper;
 import eu.europa.esig.dss.diagnostic.SignatureWrapper;
 import eu.europa.esig.dss.detailedreport.DetailedReport;
 import eu.europa.esig.dss.jaxb.object.Message;
@@ -24,6 +25,10 @@ public final class SignatureEvidenceExtractor {
         info.setCounterSignature(wrapper.isCounterSignature());
         SignatureWrapper parent = wrapper.getParent();
         if (parent != null) info.setParentSignatureId(parent.getId());
+        CertificateWrapper signingCertificate = wrapper.getSigningCertificate();
+        if (signingCertificate != null) {
+            info.setSignerCertificateProfile(SignerCertificateProfileDetector.detect(signingCertificate));
+        }
         List<SignedReferenceInfo> references = new ArrayList<>();
         List<XmlDigestMatcher> matchers = wrapper.getDigestMatchers();
         if (matchers != null) {

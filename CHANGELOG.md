@@ -7,6 +7,41 @@ ve bu proje [Semantic Versioning 2.0.0](https://semver.org/spec/v2.0.0.html) kul
 
 ## [Unreleased]
 
+> **Canlı ortam notu:** SİL/AIA gzip düzeltmesi yalnız sıkıştırılmış isteği
+> reddeden sunucuları (ör. KamuSM test deposu) etkiler; canlı KamuSM deposu
+> gzip'i kabul ettiği için orada davranış değişmez (bkz. "Fixed").
+
+### Added
+- İmza yanıtında imzacı sertifikasının profili ve nitelikli sertifika ibareleri;
+  her doğrulama seviyesinde döner, doğrulama kararını değiştirmez:
+  `signatures[].signerCertificateProfile` (`NES_E_IMZA` / `MALI_MUHUR` /
+  `UNKNOWN`, sertifika OID'lerinden) ve `CertificateInfo.qcStatements`
+  (QCStatements ibare OID'leri; ör. BTK `2.16.792.1.61.0.1.5070.1.1`, ETSI
+  `0.4.0.1862.1.1`). .NET istemci modelleri güncellendi.
+
+### Fixed
+- **Çevrimiçi SİL ve AIA indirmesi KamuSM test deposunda hiç çalışmıyordu.**
+  Apache HttpClient 5 varsayılan `Accept-Encoding: gzip` gönderir;
+  `depo.test3.kamusm.gov.tr` bu isteği `302 → /` ile yönlendirir ve yönlendirilen
+  adres `400` döner. SİL ve AIA indirmesi artık otomatik pazarlanır
+  (`AdaptiveCompressionDataLoader`): standart istekle başlar, sunucu
+  sıkıştırılmış isteği HTTP hatasıyla reddederse aynı istek sıkıştırmasız
+  yeniden denenir ve host hatırlanır (zaman aşımı / bağlantı hatalarında ikinci
+  deneme yapılmaz; sıkıştırmayı doğru destekleyen sağlayıcılar etkilenmez).
+  Etki: test deposuna bağlı (TÜBİTAK Uyum Değerlendirme) ortamlarda ara
+  sertifikası gömülü olmayan BES / ES-T imzalarda zincir artık kurulur; önceden
+  hepsi `BBB_XCV_CCCBB` ("zincir güven kökü içermiyor") ile geçersizdi. Canlı
+  KamuSM deposu (`depo.kamusm.gov.tr`) gzip'i kabul ettiği için orada davranış
+  değişmez.
+- `BBB_CV_IRDOF` (imzalanan referans verisi bulunamadı) XCV INDETERMINATE iken
+  CASCADE sayılıp kök neden olarak gizleniyordu; artık her zaman ROOT_CAUSE.
+- `/api/v1/health` ve `/api/v1/info` sürümü `@project.version@` dönüyordu:
+  `pom.xml`'deki özel `<resources>` bloğu `application*.properties`
+  filtrelemesini kapatıyordu. Not: Docker imajı
+  `src/main/resources/application.properties` dosyasını filtrelenmemiş haliyle
+  `/app/config/` altına kopyaladığından ve bu dosya jar içindekinin önüne
+  geçtiğinden imajda sürüm hâlâ `@project.version@` görünür.
+
 ## [1.1.0] - 2026-10-04
 
 > **Canlı ortam notu:** Bu sürümün yeni davranışları üç feature flag

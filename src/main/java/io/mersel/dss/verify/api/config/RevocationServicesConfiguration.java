@@ -20,6 +20,7 @@ import io.mersel.dss.verify.api.services.revocation.RetryingOCSPSource;
 import io.mersel.dss.verify.api.services.revocation.RevocationFailureCache;
 import io.mersel.dss.verify.api.services.revocation.RevocationFailureClassifier;
 import io.mersel.dss.verify.api.services.revocation.StatusAwareHttpClientResponseHandler;
+import io.mersel.dss.verify.api.services.revocation.AdaptiveCompressionDataLoader;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.ObjectProvider;
@@ -174,7 +175,7 @@ public class RevocationServicesConfiguration {
             havingValue = "true",
             matchIfMissing = true)
     public CRLSource crlSource() {
-        CommonsDataLoader dataLoader = new CommonsDataLoader();
+        CommonsDataLoader dataLoader = newDownloadDataLoader();
         applyTimeouts(dataLoader);
         if (config.isRevocationFastFailEnabled()) {
             // Ayni davranis + tipli HTTP status (retry siniflandirmasi icin).
@@ -238,7 +239,7 @@ public class RevocationServicesConfiguration {
             havingValue = "true",
             matchIfMissing = true)
     public AIASource aiaSource() {
-        CommonsDataLoader rawLoader = new CommonsDataLoader();
+        CommonsDataLoader rawLoader = newDownloadDataLoader();
         applyTimeouts(rawLoader);
 
         io.mersel.dss.verify.api.metrics.VerificationMetrics metrics =
@@ -286,11 +287,16 @@ public class RevocationServicesConfiguration {
     }
 
     /**
-     * Basarisiz OCSP/CRL fetch'leri icin negatif cache. {@code ttl-seconds=0}
-     * ise kapali bir instance doner (eski davranis). Gecersiz konfig
-     * (negatif TTL, etkinken {@code max-size <= 0}) startup'ta IAE ile
-     * fail-fast olur.
+     * SİL ve AIA indirmesi için data loader: standart (gzip) istekle başlar;
+     * sunucu sıkıştırılmış isteği HTTP hatasıyla reddederse sıkıştırmasız
+     * yeniden dener ve hostu hatırlar. KamuSM depo sunucusu gzip isteyen
+     * istemciyi 302 → 400 ile reddediyor (bkz.
+     * {@link AdaptiveCompressionDataLoader}).
      */
+    private CommonsDataLoader newDownloadDataLoader() {
+        return new AdaptiveCompressionDataLoader();
+    }
+
     /**
      * Fast-fail kapaliyken (varsayilan) her hata yeniden denenir — v1.0.4
      * davranisi. Acikken yalniz gecici hatalar ({@link RevocationFailureClassifier}).
@@ -309,6 +315,12 @@ public class RevocationServicesConfiguration {
                 + (config.isRevocationFastFailEnabled() ? " (transient only)" : "");
     }
 
+    /**
+     * Basarisiz OCSP/CRL fetch'leri icin negatif cache. {@code ttl-seconds=0}
+     * ise kapali bir instance doner (eski davranis). Gecersiz konfig
+     * (negatif TTL, etkinken {@code max-size <= 0}) startup'ta IAE ile
+     * fail-fast olur.
+     */
     private RevocationFailureCache buildFailureCache(String kind) {
         if (!config.isRevocationFastFailEnabled()) {
             logger.info("Revocation failure cache ({}): disabled (verification.revocation.fast-fail.enabled=false)",

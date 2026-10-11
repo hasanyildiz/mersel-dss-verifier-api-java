@@ -200,12 +200,14 @@ curl -X POST http://localhost:8086/api/v1/verify/pades \
       "digestAlgorithm": "SHA256",
       "signingTime": "2024-11-07T14:20:00Z",
       "claimedSigningTime": "2024-11-07T14:20:00Z",
+      "signerCertificateProfile": "NES_E_IMZA",
       "signerCertificate": {
         "subjectDN": "CN=Test User, O=Test Organization",
         "issuerDN": "CN=Test CA, O=KamuSM",
         "serialNumber": "5A2295753A906E",
         "notBefore": "2023-01-01T00:00:00Z",
         "notAfter": "2025-01-01T00:00:00Z",
+        "qcStatements": ["0.4.0.1862.1.1", "2.16.792.1.61.0.1.5070.1.1"],
         "trusted": true,
         "expired": false,
         "revoked": false,
@@ -518,7 +520,15 @@ REVOCATION_RETRY_JITTER_RATIO=0.2         # ±jitterRatio rastgele varyasyon
 REVOCATION_FAST_FAIL_ENABLED=false   # Feature flag, varsayılan KAPALI.
 ```
 
-Kapalıyken (varsayılan, canlı ortam) revocation davranışı v1.0.4 ile **birebir aynıdır**: her hata `REVOCATION_RETRY_MAX_ATTEMPTS`'e kadar yeniden denenir, başarısız fetch'ler hatırlanmaz, her istek yeniden fetch eder. Açıkken üç özellik birlikte devreye girer: aşağıdaki hata sınıflandırması (yalnız geçici hatalar yeniden denenir), negatif cache ve single-flight. KamuSM test deposunun (`depo.test3.kamusm.gov.tr`) kalıcı HTTP 400 döndüğü TÜBİTAK Uyum Değerlendirme / test deployment'ları için geliştirilmiştir.
+Kapalıyken (varsayılan, canlı ortam) revocation davranışı v1.0.4 ile **birebir aynıdır**: her hata `REVOCATION_RETRY_MAX_ATTEMPTS`'e kadar yeniden denenir, başarısız fetch'ler hatırlanmaz, her istek yeniden fetch eder. Açıkken üç özellik birlikte devreye girer: aşağıdaki hata sınıflandırması (yalnız geçici hatalar yeniden denenir), negatif cache ve single-flight. TÜBİTAK Uyum Değerlendirme / test deployment'ları için geliştirilmiştir. (KamuSM test deposunun döndüğü HTTP 400 aslında `Accept-Encoding: gzip` başlığından kaynaklanıyordu; SİL / AIA indirmesi artık bunu otomatik aşar — bkz. [Adaptive compression](#adaptive-compression-sil--aia-indirmesi).)
+
+##### Adaptive Compression (SİL / AIA indirmesi)
+
+`AdaptiveCompressionDataLoader` her host için sıkıştırma davranışını çalışma zamanında öğrenir; yapılandırma gerekmez:
+
+1. İlk istek standart `Accept-Encoding: gzip` ile gider (sıkıştırmayı destekleyen sağlayıcılar etkilenmez).
+2. Sunucu isteği HTTP status hatasıyla reddederse (ör. KamuSM `depo.test3.kamusm.gov.tr`: `302 → / → 400`) aynı istek sıkıştırmasız bir kez daha denenir. Zaman aşımı / bağlantı hatalarında ikinci deneme yapılmaz.
+3. Sıkıştırmasız deneme başarılıysa host hatırlanır; o hosta sonraki istekler doğrudan sıkıştırmasız gider (host başına yalnız bir kez ekstra istek).
 
 > Takas: fast-fail açıkken responder toparlandıktan sonra aynı sertifika için negatif cache TTL'i kadar (geçici 30 s / kalıcı 300 s) "revocation verisi yok" dönebilir.
 
@@ -650,6 +660,25 @@ Bu durumda alan tamamen JSON'a düşmez (`@JsonInclude(NON_NULL)`). Strict polic
 - `strict` + `LEAF_GOOD_CA_REVOKED` → `valid: false`, sub-indication: `REVOKED_CA_NO_POE` / benzeri. eIDAS QES paralelinde sıkı davranır.
 
 Detaylı zincir cert'lerine erişim için doğrulamayı `level=COMPREHENSIVE` ile çağırın — `certificateChain[i].revocation` alt nesneleri her cert için ayrı dolar.
+
+##### İmzacı Sertifika Profili ve Nitelikli Sertifika İbareleri — `signerCertificateProfile`, `qcStatements`
+
+Her doğrulama modunda (SIMPLE + COMPREHENSIVE) her imza, imzacı sertifikasının profilini ve nitelikli sertifika ibarelerini döner:
+
+```jsonc
+"signatures": [{
+  "signerCertificateProfile": "NES_E_IMZA",   // NES_E_IMZA | MALI_MUHUR | UNKNOWN
+  "signerCertificate": {
+    "qcStatements": ["0.4.0.1862.1.1", "2.16.792.1.61.0.1.5070.1.1"],
+    ...
+  }
+}]
+```
+
+- `signerCertificateProfile` sertifikanın OID'lerinden tespit edilir: mali mühür politikası (`2.16.792.1.2.1.1.5.7.4.1`) veya EKU'su (`2.16.792.1.2.1.1.5.7.50.1`) → `MALI_MUHUR`; NES politikası (`2.16.792.1.2.1.1.5.7.1.1`) veya 5070 sayılı Kanun QC ibaresi (`2.16.792.1.61.0.1.5070.*`) → `NES_E_IMZA`; kanıt yoksa `UNKNOWN`. İmzacı sertifikası bulunamazsa alan JSON'a düşmez.
+- `qcStatements`, sertifikanın QCStatements uzantısındaki (RFC 3739) ibare OID'leridir, sertifikadaki sırayla; uzantı yoksa `[]`. 5070 sayılı Kanun'a göre nitelikli sertifika ibaresi BTK `2.16.792.1.61.0.1.5070.1.1`, ETSI QcCompliance `0.4.0.1862.1.1`'dir. Aynı alan `certificateChain[]` (COMPREHENSIVE) ve zaman damgası sertifikalarında da bulunur.
+
+**Bu alanlar doğrulama kararını değiştirmez.** Sertifikadaki beyanı aktarır; imzanın geçerliliği `valid` / `indication` alanlarındadır.
 
 #### TR-Legacy XAdES Toleransı
 

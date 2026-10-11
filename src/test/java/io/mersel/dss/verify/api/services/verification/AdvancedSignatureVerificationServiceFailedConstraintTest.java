@@ -662,6 +662,34 @@ class AdvancedSignatureVerificationServiceFailedConstraintTest {
     }
 
     @Test
+    void referencedDataNotFound_isRootCause_evenWhenXcvIndeterminate() {
+        // Ayrık imzanın özgün belgesi gönderilmedi: veri bulunamadı hatası sertifika
+        // bağlamından bağımsızdır, XCV INDETERMINATE (örn. SİL tazeliği) onu gizlememeli.
+        XmlBasicBuildingBlocks bbb = new XmlBasicBuildingBlocks();
+        bbb.setId(SIG_ID);
+        XmlXCV xcv = new XmlXCV();
+        XmlConclusion conclusion = new XmlConclusion();
+        conclusion.setIndication(Indication.INDETERMINATE);
+        xcv.setConclusion(conclusion);
+        XmlSubXCV sub = new XmlSubXCV();
+        sub.setId("CERT-LEAF");
+        sub.getConstraint().add(constraint("BBB_XCV_RFC", "name", "freshness", XmlStatus.NOT_OK));
+        xcv.getSubXCV().add(sub);
+        bbb.setXCV(xcv);
+        XmlCV cv = new XmlCV();
+        cv.getConstraint().add(constraint("BBB_CV_IRDOF",
+                "name", "Referans veri nesnesi bulunamadı", XmlStatus.NOT_OK));
+        bbb.setCV(cv);
+
+        List<FailedConstraint> details = service.collectFailingBbbConstraintDetails(
+                wrap(bbb), SIG_ID);
+
+        assertEquals(FailureCategory.ROOT_CAUSE, byKey(details, "BBB_CV_IRDOF").getCategory());
+        assertEquals("BBB_CV_IRDOF", details.get(0).getKey(),
+                "CV bloğu XCV'den önce gezilir; ilk ROOT_CAUSE kök neden olur.");
+    }
+
+    @Test
     void savFailure_remainsInList_whenXcvHealthy() {
         // XCV başarılıyken SAV failure cascade DEĞİL — gerçek root cause.
         XmlBasicBuildingBlocks bbb = new XmlBasicBuildingBlocks();

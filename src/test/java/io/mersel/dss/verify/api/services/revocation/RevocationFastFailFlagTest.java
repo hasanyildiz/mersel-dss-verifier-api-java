@@ -30,9 +30,11 @@ class RevocationFastFailFlagTest {
             CRLSource crl = configuration(false).crlSource();
 
             assertNull(crl.getRevocationToken(pki.leafToken(), pki.caToken()));
-            assertEquals(3, server.hits("/root.crl"), "1 deneme + 2 retry");
+            // 1. deneme: gzip + sikistirmasiz fallback (2 istek; fallback da 400 alir
+            // ve host "fallback issiz" ogrenilir), 2./3. denemeler artik tek istek.
+            assertEquals(4, server.hits("/root.crl"), "1 deneme (gzip+identity probe) + 2 retry");
             assertNull(crl.getRevocationToken(pki.leafToken(), pki.caToken()));
-            assertEquals(6, server.hits("/root.crl"), "hata hatirlanmaz, yeniden fetch edilir");
+            assertEquals(7, server.hits("/root.crl"), "hata hatirlanmaz, yeniden fetch edilir (3 tek-istek denemesi)");
         }
     }
 
@@ -58,9 +60,10 @@ class RevocationFastFailFlagTest {
             CRLSource crl = configuration(true).crlSource();
 
             assertNull(crl.getRevocationToken(pki.leafToken(), pki.caToken()));
-            assertEquals(1, server.hits("/root.crl"), "kalici hata yeniden denenmez");
+            // Tek fetch operasyonu: gzip 400 + sikistirmasiz fallback 400 (kalici hata).
+            assertEquals(2, server.hits("/root.crl"), "kalici hata yeniden denenmez (gzip + identity probe)");
             assertNull(crl.getRevocationToken(pki.leafToken(), pki.caToken()));
-            assertEquals(1, server.hits("/root.crl"), "negatif cache'ten doner");
+            assertEquals(2, server.hits("/root.crl"), "negatif cache'ten doner");
         }
     }
 

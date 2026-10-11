@@ -140,6 +140,10 @@ class DssEvidenceIntegrationTest {
         io.mersel.dss.verify.api.models.VerificationResult standard = service.verifySignature(file, null, io.mersel.dss.verify.api.models.enums.VerificationLevel.COMPREHENSIVE, true);
         assertEquals("SERVER", standard.getTrustContext().getMode());
         assertTrue(standard.getSignatures().get(0).getSignerCertificate().isTrusted());
+        // Profil ve QC ibareleri SIMPLE seviyesinde de döner; OID kanıtı olmayan sertifika UNKNOWN.
+        SignatureInfo simple = service.verifySignature(file, null, io.mersel.dss.verify.api.models.enums.VerificationLevel.SIMPLE).getSignatures().get(0);
+        assertEquals(io.mersel.dss.verify.api.models.enums.SignerCertificateProfile.UNKNOWN, simple.getSignerCertificateProfile());
+        assertEquals(Collections.emptyList(), simple.getSignerCertificate().getQcStatements());
         assertEquals(1, trust.getCertificates().size());
         io.mersel.dss.verify.api.services.certificate.ActiveTrustStore activeStore = new io.mersel.dss.verify.api.services.certificate.ActiveTrustStore();
         org.mockito.Mockito.when(roots.getVerificationTrustContext()).thenAnswer(call -> activeStore.snapshot(() -> trust));

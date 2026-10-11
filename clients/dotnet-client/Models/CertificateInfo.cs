@@ -59,6 +59,15 @@ public sealed class CertificateInfo
     [JsonPropertyName("signatureAlgorithm")]
     public string? SignatureAlgorithm { get; set; }
 
+    /// <summary>
+    /// Nitelikli sertifika ibareleri (QCStatements, RFC 3739): ibare OID'leri,
+    /// sertifikadaki sırayla; uzantı yoksa boş liste. Örn. ETSI QcCompliance
+    /// <c>0.4.0.1862.1.1</c>, 5070 sayılı Kanun'a göre nitelikli sertifika ibaresi
+    /// <c>2.16.792.1.61.0.1.5070.1.1</c>. Doğrulama kararını etkilemez.
+    /// </summary>
+    [JsonPropertyName("qcStatements")]
+    public List<string>? QcStatements { get; set; }
+
     /// <summary>Trust anchor'a kadar zincirlenebiliyor mu?</summary>
     [JsonPropertyName("trusted")]
     public bool Trusted { get; set; }

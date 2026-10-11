@@ -1,17 +1,21 @@
 package io.mersel.dss.verify.api.services.util;
 
+import eu.europa.esig.dss.diagnostic.CertificateWrapper;
 import eu.europa.esig.dss.diagnostic.SignatureWrapper;
 import eu.europa.esig.dss.detailedreport.DetailedReport;
 import eu.europa.esig.dss.jaxb.object.Message;
+import eu.europa.esig.dss.diagnostic.jaxb.XmlCertificate;
 import eu.europa.esig.dss.diagnostic.jaxb.XmlDigestMatcher;
 import eu.europa.esig.dss.diagnostic.jaxb.XmlSignature;
 import eu.europa.esig.dss.enumerations.DigestAlgorithm;
 import eu.europa.esig.dss.enumerations.DigestMatcherType;
 import io.mersel.dss.verify.api.models.SignatureInfo;
 import io.mersel.dss.verify.api.models.SignedReferenceInfo;
+import io.mersel.dss.verify.api.models.enums.SignerCertificateProfile;
 import org.junit.jupiter.api.Test;
 
 import java.util.Arrays;
+import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.*;
@@ -84,6 +88,50 @@ class SignatureEvidenceExtractorTest {
         assertFalse(info.isValid());
         assertEquals(1, info.getRecommendations().size());
         assertEquals("VALIDATION_EVIDENCE_INCOMPLETE", info.getRecommendations().get(0).getCode());
+    }
+
+    @Test
+    void exposesSignerCertificateProfileWithoutChangingVerdict() {
+        SignatureInfo info = new SignatureInfo();
+        info.setSignatureId("S1");
+        info.setValid(false);
+        info.setIndication("TOTAL_FAILED");
+        SignatureEvidenceExtractor.enrich(info, signedBy(certificateWithPolicies("2.16.792.1.2.1.1.5.7.1.1")));
+        assertEquals(SignerCertificateProfile.NES_E_IMZA, info.getSignerCertificateProfile());
+        assertFalse(info.isValid());
+        assertEquals("TOTAL_FAILED", info.getIndication());
+    }
+
+    @Test
+    void signerCertificateWithoutProfileEvidenceIsUnknown() {
+        SignatureInfo info = new SignatureInfo();
+        SignatureEvidenceExtractor.enrich(info, signedBy(certificateWithPolicies()));
+        assertEquals(SignerCertificateProfile.UNKNOWN, info.getSignerCertificateProfile());
+    }
+
+    @Test
+    void missingSigningCertificateLeavesProfileOutOfResponse() {
+        SignatureInfo info = new SignatureInfo();
+        SignatureEvidenceExtractor.enrich(info, new SignatureWrapper(new XmlSignature()));
+        assertNull(info.getSignerCertificateProfile());
+    }
+
+    private static SignatureWrapper signedBy(CertificateWrapper certificate) {
+        return new SignatureWrapper(new XmlSignature()) {
+            @Override
+            public CertificateWrapper getSigningCertificate() {
+                return certificate;
+            }
+        };
+    }
+
+    private static CertificateWrapper certificateWithPolicies(String... policyIds) {
+        return new CertificateWrapper(new XmlCertificate()) {
+            @Override
+            public List<String> getPolicyIds() {
+                return Arrays.asList(policyIds);
+            }
+        };
     }
 
     @Test

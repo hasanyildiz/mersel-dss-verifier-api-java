@@ -3,6 +3,7 @@ package io.mersel.dss.verify.api.models;
 import com.fasterxml.jackson.annotation.JsonInclude;
 import io.mersel.dss.verify.api.models.enums.ChainRevocationStatus;
 import io.mersel.dss.verify.api.models.enums.SignaturePackaging;
+import io.mersel.dss.verify.api.models.enums.SignerCertificateProfile;
 
 import java.util.Date;
 import java.util.List;
@@ -44,6 +45,20 @@ public class SignatureInfo {
     private Date signingTime;
     private Date claimedSigningTime;
     private CertificateInfo signerCertificate;
+    /**
+     * İmzacı sertifikasının OID kanıtlarından tespit edilen profili:
+     * {@link SignerCertificateProfile#NES_E_IMZA} (nitelikli e-imza),
+     * {@link SignerCertificateProfile#MALI_MUHUR} veya kanıt yoksa
+     * {@link SignerCertificateProfile#UNKNOWN}. Her doğrulama seviyesinde
+     * döner; imzacı sertifikası bulunamazsa {@code null} (JSON'a düşmez).
+     * Nitelikli sertifika ibarelerinin kendisi
+     * {@code signerCertificate.qcStatements} alanındadır.
+     *
+     * <p>Doğrulama <em>kararını</em> etkilemez; yalnız görünürlük içindir.</p>
+     *
+     * @see io.mersel.dss.verify.api.services.util.SignerCertificateProfileDetector
+     */
+    private SignerCertificateProfile signerCertificateProfile;
     private List<CertificateInfo> certificateChain;
     /**
      * İmzanın sertifika zinciri (leaf + intermediate CA'lar) için
@@ -263,6 +278,14 @@ public class SignatureInfo {
 
     public void setSignerCertificate(CertificateInfo signerCertificate) {
         this.signerCertificate = signerCertificate;
+    }
+
+    public SignerCertificateProfile getSignerCertificateProfile() {
+        return signerCertificateProfile;
+    }
+
+    public void setSignerCertificateProfile(SignerCertificateProfile signerCertificateProfile) {
+        this.signerCertificateProfile = signerCertificateProfile;
     }
 
     public List<CertificateInfo> getCertificateChain() {

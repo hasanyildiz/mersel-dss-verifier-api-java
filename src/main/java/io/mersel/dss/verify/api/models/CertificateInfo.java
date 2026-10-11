@@ -21,6 +21,15 @@ public class CertificateInfo {
     private List<String> extendedKeyUsages;
     private List<String> criticalExtensionOids;
     private List<String> nonCriticalExtensionOids;
+    /**
+     * Nitelikli sertifika ibareleri (QCStatements, RFC 3739): her ibarenin
+     * {@code statementId} OID'i, sertifikadaki sırayla; uzantı yoksa boş
+     * liste. Örn. ETSI QcCompliance {@code 0.4.0.1862.1.1}, 5070 sayılı
+     * Kanun'a göre nitelikli sertifika ibaresi (BTK)
+     * {@code 2.16.792.1.61.0.1.5070.1.1}. Sertifikadaki beyanı aktarır;
+     * doğrulama kararını etkilemez.
+     */
+    private List<String> qcStatements;
     private List<String> subjectAlternativeNames;
     private Boolean certificateAuthority;
     private Integer basicConstraints;
@@ -232,6 +241,9 @@ public class CertificateInfo {
 
     public List<String> getNonCriticalExtensionOids() { return nonCriticalExtensionOids; }
     public void setNonCriticalExtensionOids(List<String> nonCriticalExtensionOids) { this.nonCriticalExtensionOids = nonCriticalExtensionOids; }
+
+    public List<String> getQcStatements() { return qcStatements; }
+    public void setQcStatements(List<String> qcStatements) { this.qcStatements = qcStatements; }
 
     public List<String> getSubjectAlternativeNames() { return subjectAlternativeNames; }
     public void setSubjectAlternativeNames(List<String> subjectAlternativeNames) { this.subjectAlternativeNames = subjectAlternativeNames; }

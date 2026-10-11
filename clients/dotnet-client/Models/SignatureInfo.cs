@@ -50,6 +50,14 @@ public sealed class SignatureInfo
     public CertificateInfo? SignerCertificate { get; set; }
 
     /// <summary>
+    /// İmzacı sertifikasının OID kanıtlarından tespit edilen profili (NES / mali mühür /
+    /// bilinmiyor). Her doğrulama seviyesinde döner; imzacı sertifikası bulunamazsa
+    /// <c>null</c>. Doğrulama kararını etkilemez.
+    /// </summary>
+    [JsonPropertyName("signerCertificateProfile")]
+    public SignerCertificateProfile? SignerCertificateProfile { get; set; }
+
+    /// <summary>
     /// Tam sertifika zinciri (leaf'ten root'a). Yalnız
     /// <see cref="Enums.VerificationLevel.COMPREHENSIVE"/> modda doldurulur.
     /// </summary>
