@@ -137,6 +137,52 @@ public class XadesSignaturePackagingDetector {
     }
 
     /**
+     * İmzalanan veriye belge dışından başvuran referans URI'leri — ayrık
+     * (detached) imzanın kanıtı. {@link #detect} sonucundan farklı olarak
+     * aynı belgedeki bir öğeye {@code #id} ile başvuran referanslar (karşı
+     * imzanın {@code CountersignedSignature} referansı dahil) ayrık sayılmaz.
+     *
+     * <p>Meta referanslar (SignedProperties vb.), enveloped dönüşümlü ve boş
+     * URI'li referanslar dahil edilmez. XAdES dışı imzalarda boş liste döner.</p>
+     */
+    public List<String> externalReferenceUris(AdvancedSignature signature) {
+        List<String> uris = new ArrayList<>();
+        if (!(signature instanceof XAdESSignature)) {
+            return uris;
+        }
+        Element sigElement = ((XAdESSignature) signature).getSignatureElement();
+        if (sigElement == null) {
+            return uris;
+        }
+        try {
+            return externalReferenceUris(sigElement);
+        } catch (RuntimeException e) {
+            logger.warn("XAdES external reference detection failed for signatureId={}: {}",
+                    safeId(signature), e.getMessage());
+            return uris;
+        }
+    }
+
+    List<String> externalReferenceUris(Element sigElement) {
+        List<String> uris = new ArrayList<>();
+        Element signedInfo = directChild(sigElement, "SignedInfo");
+        if (signedInfo == null) {
+            return uris;
+        }
+        for (Element ref : directChildren(signedInfo, "Reference")) {
+            if (isMetaReferenceType(ref.getAttribute("Type")) || hasEnvelopedTransform(ref)) {
+                continue;
+            }
+            String uri = ref.getAttribute("URI");
+            if (uri == null || uri.isEmpty() || uri.startsWith("#")) {
+                continue;
+            }
+            uris.add(uri);
+        }
+        return uris;
+    }
+
+    /**
      * Tip-bazlı asıl karar mantığı. Unit-test için package-private.
      *
      * @param sigElement {@code ds:Signature} DOM elementi

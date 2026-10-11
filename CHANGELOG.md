@@ -7,9 +7,24 @@ ve bu proje [Semantic Versioning 2.0.0](https://semver.org/spec/v2.0.0.html) kul
 
 ## [Unreleased]
 
-> **Canlı ortam notu:** SİL/AIA gzip düzeltmesi yalnız sıkıştırılmış isteği
-> reddeden sunucuları (ör. KamuSM test deposu) etkiler; canlı KamuSM deposu
-> gzip'i kabul ettiği için orada davranış değişmez (bkz. "Fixed").
+> **Canlı ortam notu:** Bu sürüm doğrulama kararlarını değiştirir; değişikliklerin
+> bir kısmı bayrağa bağlı değildir.
+>
+> - TR uyum kontrolleri (`TR_COMPLIANCE_CHECKS_ENABLED`) ve imzacı profil KeyUsage
+>   kontrolü (`MDSS-TR-KEYUSAGE-PROFILE`,
+>   `VERIFICATION_SIGNER_KEYUSAGE_PROFILE_ENABLED`) varsayılan olarak **açıktır**:
+>   DSS'in geçirdiği imzalar reddedilebilir (ör. BTK / ETSI / UserNotice ibaresi
+>   eksik NES, yalnız `digitalSignature` taşıyan NES, EKU'su veya politikası eksik
+>   mali mühür, ne mali mühür ne NES olan imzacı). İkisi de `false` ile kapatılır.
+> - Hazır politikalarda imzacı ve karşı imza sertifikası için `digitalSignature`
+>   artık zorunludur (bkz. "Changed"). Bu değişiklik bayrağa bağlı **değildir**:
+>   yalnız `nonRepudiation` taşıyan sertifikalar iki bayrak kapalıyken de
+>   reddedilir. Gölgelenen `KeyUsageCheck` nedeniyle eski iki `<Id>`'li liste
+>   özel politikayla (`DSS_POLICY_PATH`) da geri getirilemez; orada "ve" olarak
+>   değerlendirilir.
+> - SİL/AIA gzip düzeltmesi yalnız sıkıştırılmış isteği reddeden sunucuları
+>   (ör. KamuSM test deposu) etkiler; canlı KamuSM deposu gzip'i kabul ettiği
+>   için orada davranış değişmez (bkz. "Fixed").
 
 ### Added
 - İmza yanıtında imzacı sertifikasının profili ve nitelikli sertifika ibareleri;
@@ -18,6 +33,55 @@ ve bu proje [Semantic Versioning 2.0.0](https://semver.org/spec/v2.0.0.html) kul
   `UNKNOWN`, sertifika OID'lerinden) ve `CertificateInfo.qcStatements`
   (QCStatements ibare OID'leri; ör. BTK `2.16.792.1.61.0.1.5070.1.1`, ETSI
   `0.4.0.1862.1.1`). .NET istemci modelleri güncellendi.
+- **TR uyum kontrolleri** (`verification.tr-compliance.enabled`,
+  `TR_COMPLIANCE_CHECKS_ENABLED`, varsayılan **açık**) — TÜBİTAK e-Fatura ön hazırlık
+  değerlendirmesindeki MA3 politikasının DSS politika şemasıyla ifade edilemeyen
+  kuralları, DSS doğrulamasından sonra `TrComplianceChecker` ile uygulanır.
+  Bulgu üretilen imza `valid=false` olur, `rootCause` ve `validationErrors`
+  başına olaya özgü Türkçe gerekçe yazılır, `appliedRejections[]` DSS'in asıl
+  kararını (`originalIndication`) taşır. Yeni `RejectionCode`'lar
+  (`docs/rejections/MDSS-TR-*.md`):
+  - `MDSS-TR-XADES-DETACHED` — ayrık (belge dışı referanslı) XAdES imza, özgün
+    belge (`originalDocument`) gönderilmediyse veya gönderilen belge ayrık
+    referansların hepsini doğrulamıyorsa (veri bulunamadı / özet tutmadı).
+    Özgün belgeyle doğrulanan ayrık imza, enveloping ve enveloped kabul edilir;
+    karşı imzalar kural dışıdır.
+  - `MDSS-TR-CERT-SIGNATURE-INVALID` — imzası düzenleyicisiyle doğrulanamayan
+    sertifika (DSS yalnız "zincir güven kökü içermiyor" diyordu). Aday
+    düzenleyiciler: güven kökleri, belgedeki sertifikalar, gerekirse AIA.
+  - `MDSS-TR-CERT-EXPIRED-AT-SIGNING-TIME` / `MDSS-TR-CERT-NOT-YET-VALID-AT-SIGNING-TIME`
+    — en erken imza zaman damgası (yoksa beyan edilen zaman) sertifikanın
+    geçerlilik aralığı dışında (DSS iptal verisi seçiminde durup
+    `BBB_XCV_IARDPFC` raporluyordu).
+  - `MDSS-TR-CRL-EXPIRED` — zincirdeki sertifikanın yalnız SİL'i var ve hiçbirinin
+    `nextUpdate`'i kontrol zamanını (imza zaman damgası, yoksa doğrulama zamanı)
+    kapsamıyor; MA3 `CRLDateChecker` eşdeğeri.
+  - NES (mali mühür olmayan imzacı): `MDSS-TR-NES-CERTIFICATE-POLICY`
+    (UserNotice), `MDSS-TR-NES-QC-ETSI` (`0.4.0.1862.1.1`),
+    `MDSS-TR-NES-QC-BTK` (`2.16.792.1.61.0.1.5070.1.1`). NES nonRepudiation
+    burada değil; aşağıdaki profil KeyUsage kontrolündedir.
+  - Mali mühür (EKU `…5.7.50.1` veya politika `…5.7.4.1`):
+    `MDSS-TR-SEAL-EXTENDED-KEY-USAGE`, `MDSS-TR-SEAL-CERTIFICATE-POLICY`.
+- **İmzacı sertifikası profil KeyUsage kontrolü** (`MDSS-TR-KEYUSAGE-PROFILE`,
+  `verification.signer-keyusage-profile-enabled`, varsayılan **açık**). Profil
+  sertifikanın OID'lerinden tespit edilir (mali mühür: EKU `…5.7.50.1` veya
+  politika `…5.7.4.1`; NES: politika `…5.7.1.1` veya KamuSM QC ibaresi):
+  NES'te `digitalSignature` ve `nonRepudiation` birlikte, mali mühürde yalnız
+  `digitalSignature` zorunlu. İhlalde imzanın `rootCause` alanı bu koddur (TR
+  uyum kodlarıyla aynı kontrat).
+- `XadesSignaturePackagingDetector#externalReferenceUris`.
+
+### Changed
+- Hazır politikalarda (`kamusm-signer-strict-constraint.xml`,
+  `kamusm-strict-constraint.xml`) imzacı ve karşı imza sertifikasının
+  `<KeyUsage>` kısıtı "`nonRepudiation` veya `digitalSignature`" yerine yalnız
+  `digitalSignature`. NES'e özgü `nonRepudiation` zorunluluğu
+  `MDSS-TR-KEYUSAGE-PROFILE` kontrolündedir.
+- DSS 6.3 `KeyUsageCheck` sınıfı projede gölgelendi (classpath shadow): imzacı
+  sertifikası için birden fazla `<Id>` listelenen `<KeyUsage>` kısıtı artık "ve"
+  olarak değerlendirilir (DSS'te "veya"). Hazır politikalar tek `<Id>`
+  kullandığından yalnız özel politikaları (`DSS_POLICY_PATH`) etkiler. DSS sürümü
+  yükseltilirken `docs/dss-overrides.md`'deki bakım kuralları uygulanmalıdır.
 
 ### Fixed
 - **Çevrimiçi SİL ve AIA indirmesi KamuSM test deposunda hiç çalışmıyordu.**

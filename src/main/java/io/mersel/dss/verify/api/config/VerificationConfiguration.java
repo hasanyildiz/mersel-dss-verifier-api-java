@@ -325,6 +325,40 @@ public class VerificationConfiguration {
     private boolean trLegacyXadesRejectionEnrichmentEnabled;
 
     /**
+     * TR uyum kontrolleri ({@link io.mersel.dss.verify.api.services.compliance.TrComplianceChecker}):
+     * ayrık imza, bozuk sertifika imzası, imza zamanında sertifika geçerliliği,
+     * süresi dolmuş SİL ve NES / mali mühür sertifika profili. MA3 politikasının
+     * DSS şemasıyla ifade edilemeyen kurallarıdır ve DSS PASSED dediğinde de
+     * imzayı reddedebilir. NES nonRepudiation burada değil; profil bazlı KeyUsage
+     * kuralı {@link #signerKeyUsageProfileEnabled} ile ayrıca uygulanır.
+     *
+     * <p>Default <b>açık</b>: DSS'in geçirdiği imzalar da bu kurallarla
+     * reddedilebilir. Kapatmak için {@code TR_COMPLIANCE_CHECKS_ENABLED=false}
+     * ({@code verification.tr-compliance.enabled=false}).</p>
+     */
+    @Value("${verification.tr-compliance.enabled:true}")
+    private boolean trComplianceEnabled;
+
+    /**
+     * İmzacı sertifikası profil (mali mühür / e-imza) KeyUsage denetimi.
+     *
+     * <p>Sertifika profili OID kanıtlarından tespit edilir
+     * ({@code SignerCertificateProfileDetector}) ve profile göre KeyUsage
+     * zorunluluğu uygulanır: e-imza/NES'te {@code digitalSignature} VE
+     * {@code nonRepudiation}, mali mühürde yalnız {@code digitalSignature}.
+     * Böylece hangi politika etkin olursa olsun doğru profil kuralı çalışır;
+     * operatörün politika seçimiyle "mali mühür mü e-imza mı" belirlenmesi
+     * gerekmez. İhlal, {@code MDSS-TR-KEYUSAGE-PROFILE} ret koduyla imzayı
+     * geçersiz kılar (DSS PASSED dese bile; asıl DSS kararı
+     * {@code AppliedRejection.originalIndication} alanında kalır).</p>
+     *
+     * <p>Default <b>açık</b>. Kapatmak için
+     * {@code verification.signer-keyusage-profile-enabled=false}.</p>
+     */
+    @Value("${verification.signer-keyusage-profile-enabled:true}")
+    private boolean signerKeyUsageProfileEnabled;
+
+    /**
      * AIA (Authority Information Access) cache'i için maks giriş sayısı.
      * KamuSM ekosisteminde aktif ara CA sayısı çok düşük (≤20 endpoint);
      * 256 default haftalarca rahat yeter. Cache TTL içinde aynı CA Issuer
@@ -583,6 +617,22 @@ public class VerificationConfiguration {
 
     public void setTrLegacyXadesRejectionEnrichmentEnabled(boolean trLegacyXadesRejectionEnrichmentEnabled) {
         this.trLegacyXadesRejectionEnrichmentEnabled = trLegacyXadesRejectionEnrichmentEnabled;
+    }
+
+    public boolean isTrComplianceEnabled() {
+        return trComplianceEnabled;
+    }
+
+    public void setTrComplianceEnabled(boolean trComplianceEnabled) {
+        this.trComplianceEnabled = trComplianceEnabled;
+    }
+
+    public boolean isSignerKeyUsageProfileEnabled() {
+        return signerKeyUsageProfileEnabled;
+    }
+
+    public void setSignerKeyUsageProfileEnabled(boolean signerKeyUsageProfileEnabled) {
+        this.signerKeyUsageProfileEnabled = signerKeyUsageProfileEnabled;
     }
 
     public long getAiaCacheMaxSize() {

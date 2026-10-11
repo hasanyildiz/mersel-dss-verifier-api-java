@@ -530,6 +530,15 @@ Kapalıyken (varsayılan, canlı ortam) revocation davranışı v1.0.4 ile **bir
 2. Sunucu isteği HTTP status hatasıyla reddederse (ör. KamuSM `depo.test3.kamusm.gov.tr`: `302 → / → 400`) aynı istek sıkıştırmasız bir kez daha denenir. Zaman aşımı / bağlantı hatalarında ikinci deneme yapılmaz.
 3. Sıkıştırmasız deneme başarılıysa host hatırlanır; o hosta sonraki istekler doğrudan sıkıştırmasız gider (host başına yalnız bir kez ekstra istek).
 
+
+##### TR Uyum Kontrolleri (Feature Flag)
+
+```bash
+TR_COMPLIANCE_CHECKS_ENABLED=true    # Feature flag, varsayılan AÇIK; false kapatır.
+```
+
+TÜBİTAK e-Fatura ön hazırlık değerlendirmesindeki MA3 politikasının DSS politika şemasıyla ifade edilemeyen kurallarını DSS doğrulamasından sonra uygular: özgün belgeyle (`originalDocument`) doğrulanamayan ayrık XAdES imza, bozuk sertifika imzası, imza zamanında süresi dolmuş / henüz geçerli olmayan sertifika, `nextUpdate`'i imza zaman damgasından önce dolmuş SİL, NES (UserNotice, ETSI ve BTK QC ibareleri) ve mali mühür (EKU ve politika OID'si) kuralları. NES `nonRepudiation` kuralı bu bayraktan bağımsız, varsayılan açık `MDSS-TR-KEYUSAGE-PROFILE` kontrolündedir. Bulgular `appliedRejections[]` altında `MDSS-TR-*` koduyla raporlanır ve imzanın kök nedeni olur; DSS'in asıl kararı `originalIndication` alanındadır. Açıkken DSS'in geçirdiği imzalar da reddedilebilir. Kod listesi: [docs/rejections](docs/rejections/README.md).
+
 > Takas: fast-fail açıkken responder toparlandıktan sonra aynı sertifika için negatif cache TTL'i kadar (geçici 30 s / kalıcı 300 s) "revocation verisi yok" dönebilir.
 
 **Hata sınıflandırması** (`RevocationFailureClassifier`, yalnız fast-fail açıkken) — retry yalnız geçici hatalarda yapılır:

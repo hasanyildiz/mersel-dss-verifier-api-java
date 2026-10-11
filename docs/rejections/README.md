@@ -27,7 +27,7 @@ MDSS-{LAYER}-{DESCRIPTIVE-SLUG}
 | Bölüm | Açıklama |
 |---|---|
 | `MDSS` | Mersel DSS prefix'i. |
-| `{LAYER}` | İmza formatı veya kontrol katmanı: `XADES`, `CADES`, `PADES`, `CHAIN`, `CRYPTO`, `TIMESTAMP`, `REVOCATION`. |
+| `{LAYER}` | İmza formatı veya kontrol katmanı: `XADES`, `CADES`, `PADES`, `CHAIN`, `CRYPTO`, `TIMESTAMP`, `REVOCATION`, `TR` (Türkiye / MA3 uyum kuralları). |
 | `{DESCRIPTIVE-SLUG}` | UPPER-KEBAB-CASE özellik adı; self-documenting. |
 
 Aynı kod hem suppression hem rejection olamaz; kod uzayı paylaşılır.
@@ -52,6 +52,17 @@ Aynı kod hem suppression hem rejection olamaz; kod uzayı paylaşılır.
 | Kod | Severity | Kategori | Açıklama |
 |---|---|---|---|
 | [`MDSS-XADES-LEGACY-TR-MISSING-SP-REFERENCE`](./MDSS-XADES-LEGACY-TR-MISSING-SP-REFERENCE.md) | `ERROR` | XAdES | XAdES imza yalnızca bir `ds:Reference` taşıyor; `SignedProperties` imza kapsamına alınmamış. ETSI EN 319 132-1 iki referans zorunluluğuna aykırı; SignedProperties içindeki alanlar post-signing tahrifata açık. |
+| [`MDSS-TR-KEYUSAGE-PROFILE`](./MDSS-TR-KEYUSAGE-PROFILE.md) | `ERROR` | TR uyum | İmzacı sertifikasının OID'lerden tespit edilen profili (e-imza/NES: `digitalSignature` **ve** `nonRepudiation`; mali mühür: yalnız `digitalSignature`) KeyUsage gereksinimini karşılamıyor. DSS sonrası gate; DSS PASSED dese bile reddeder. |
+| [`MDSS-TR-XADES-DETACHED`](./MDSS-TR-XADES-DETACHED.md) | `ERROR` | TR uyum (`TR_COMPLIANCE_CHECKS_ENABLED`) | Üst seviye XAdES imza ayrık (detached) ve özgün belgeyle doğrulanamadı: `originalDocument` gönderilmedi ya da ayrık referanslarla eşleşmedi. Özgün belgeyle doğrulanan ayrık imza kabul edilir. |
+| [`MDSS-TR-CERT-SIGNATURE-INVALID`](./MDSS-TR-CERT-SIGNATURE-INVALID.md) | `ERROR` | TR uyum (`TR_COMPLIANCE_CHECKS_ENABLED`) | Zincirdeki sertifikanın imzası, aynı DN'li hiçbir aday düzenleyiciyle doğrulanamıyor. |
+| [`MDSS-TR-CERT-EXPIRED-AT-SIGNING-TIME`](./MDSS-TR-CERT-EXPIRED-AT-SIGNING-TIME.md) | `ERROR` | TR uyum (`TR_COMPLIANCE_CHECKS_ENABLED`) | İmza zamanında (imza zaman damgası, yoksa beyan edilen zaman) imzacı sertifikasının süresi dolmuş. |
+| [`MDSS-TR-CERT-NOT-YET-VALID-AT-SIGNING-TIME`](./MDSS-TR-CERT-NOT-YET-VALID-AT-SIGNING-TIME.md) | `ERROR` | TR uyum (`TR_COMPLIANCE_CHECKS_ENABLED`) | İmza zamanında imzacı sertifikası henüz geçerli değil. |
+| [`MDSS-TR-CRL-EXPIRED`](./MDSS-TR-CRL-EXPIRED.md) | `ERROR` | TR uyum (`TR_COMPLIANCE_CHECKS_ENABLED`) | Zincirdeki sertifikanın yalnız SİL'i var ve hiçbirinin `nextUpdate`'i kontrol zamanını kapsamıyor. |
+| [`MDSS-TR-NES-CERTIFICATE-POLICY`](./MDSS-TR-NES-CERTIFICATE-POLICY.md) | `ERROR` | TR uyum (`TR_COMPLIANCE_CHECKS_ENABLED`) | NES sertifika politikalarında kullanıcı bildirimi (UserNotice, `1.3.6.1.5.5.7.2.2`) yok. |
+| [`MDSS-TR-NES-QC-ETSI`](./MDSS-TR-NES-QC-ETSI.md) | `ERROR` | TR uyum (`TR_COMPLIANCE_CHECKS_ENABLED`) | NES nitelikli sertifika ibarelerinde ETSI QcCompliance `0.4.0.1862.1.1` yok. |
+| [`MDSS-TR-NES-QC-BTK`](./MDSS-TR-NES-QC-BTK.md) | `ERROR` | TR uyum (`TR_COMPLIANCE_CHECKS_ENABLED`) | NES nitelikli sertifika ibarelerinde BTK `2.16.792.1.61.0.1.5070.1.1` yok. |
+| [`MDSS-TR-SEAL-EXTENDED-KEY-USAGE`](./MDSS-TR-SEAL-EXTENDED-KEY-USAGE.md) | `ERROR` | TR uyum (`TR_COMPLIANCE_CHECKS_ENABLED`) | Mali mühür sertifikasının EKU'sunda `2.16.792.1.2.1.1.5.7.50.1` yok. |
+| [`MDSS-TR-SEAL-CERTIFICATE-POLICY`](./MDSS-TR-SEAL-CERTIFICATE-POLICY.md) | `ERROR` | TR uyum (`TR_COMPLIANCE_CHECKS_ENABLED`) | Mali mühür sertifikası `2.16.792.1.2.1.1.5.7.4.1` politikasını taşımıyor. |
 
 ## Operasyonel kullanım
 

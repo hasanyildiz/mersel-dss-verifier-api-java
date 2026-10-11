@@ -138,24 +138,30 @@
 				<RevocationFreshness Level="FAIL" Unit="HOURS" Value="24" />
 				<!--
 				    KeyUsage — İMZACI sertifikası dijital imza üretimine yetkili
-				    olmalı. KamuSM Mali Mühür / NES sertifikalarında qualified
-				    signature için ETSI EN 319 411-1 nonRepudiation (a.k.a.
-				    contentCommitment) bit'ini zorunlu kılar; pratikte
-				    digitalSignature ile düzenlenmiş varyantlar da mevcut.
-				    DSS bu listeyi OR olarak değerlendirir: ikisinden EN AZ
-				    BİRİ varsa OK, hiçbiri yoksa FAIL.
+				    olmalı. Burada YALNIZ digitalSignature listelenir; profil
+				    bazlı ek kural (e-imza/NES'te nonRepudiation VE
+				    digitalSignature birlikte zorunlu, mali mühürde yalnız
+				    digitalSignature) DSS sonrası gate katmanında OID'lerden
+				    tespit edilerek uygulanır (MDSS-TR-KEYUSAGE-PROFILE, bkz.
+				    docs/rejections/MDSS-TR-KEYUSAGE-PROFILE.md). Böylece
+				    operatörün "mali mühür mü e-imza mı" politikası seçmesi
+				    gerekmez; iki politika da her sertifika tipinde doğru
+				    davranır.
 
-				    NEDEN FAIL? Şifreleme amaçlı düzenlenmiş Mali Mühür
-				    sertifikaları (KeyUsage = keyEncipherment + keyAgreement,
-				    EKU = TLS Web Client Authentication) bazı üreticilerce
-				    yanlışlıkla XML imzalamada kullanılıyor. Eski WARN
-				    konfigürasyonu bu vakayı yalnızca uyarıya düşürüyor ve
-				    DSS'in pipeline'ı imzayı VALID gösterebiliyordu;
-				    TÜBİTAK doğrulayıcısı ise QC kuralı gereği FAIL veriyor.
-				    FAIL seviyesi iki doğrulayıcıyı paralel hâle getirir.
+				    DSS çok değerli imzacı listelerini OR olarak değerlendirdiği
+				    için (docs/dss-overrides.md) profil ayrımını politika
+				    XML'inde ifade etmek mümkün değildir; iki Id listelemek
+				    mali mühür sertifikalarını (nonRepudiation taşımaz) yanlışlıkla
+				    reddederdi.
+
+				    NEDEN FAIL? Şifreleme amaçlı düzenlenmiş sertifikalar
+				    (KeyUsage = keyEncipherment + keyAgreement, EKU = TLS
+				    Web Client Authentication) bazı üreticilerce yanlışlıkla
+				    XML imzalamada kullanılıyor; TÜBİTAK doğrulayıcısı QC
+				    kuralı gereği FAIL veriyor. FAIL seviyesi iki
+				    doğrulayıcıyı paralel hâle getirir.
 				-->
 				<KeyUsage Level="FAIL">
-					<Id>nonRepudiation</Id>
 					<Id>digitalSignature</Id>
 				</KeyUsage>
 				<PolicyTree Level="WARN" />
@@ -273,13 +279,13 @@
 				<!-- Sayaç imzanın iptal kontrolü ana imzayla aynı sıkılıkta, FAIL 24h -->
 				<RevocationFreshness Level="FAIL" Unit="HOURS" Value="24" />
 				<!--
-				    KeyUsage — SAYAÇ İMZASI sertifikası ana imzacıyla aynı QC
-				    kurallarına tabidir; bkz. SignatureConstraints altındaki
-				    KeyUsage yorumu. nonRepudiation VEYA digitalSignature
-				    varsa OK, ikisi de yoksa FAIL.
+				    KeyUsage — SAYAÇ İMZASI (karşı imza) sertifikası ana
+				    imzacıyla aynı kurala tabidir: yalnız digitalSignature
+				    zorunlu; profil bazlı ek kural (NES'te nonRepudiation)
+				    gate katmanında uygulanır. Bkz. SignatureConstraints
+				    altındaki KeyUsage yorumu.
 				-->
 				<KeyUsage Level="FAIL">
-					<Id>nonRepudiation</Id>
 					<Id>digitalSignature</Id>
 				</KeyUsage>
 				<PolicyTree Level="WARN" />

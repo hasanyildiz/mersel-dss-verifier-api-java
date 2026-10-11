@@ -16,12 +16,14 @@ import eu.europa.esig.dss.diagnostic.TimestampWrapper;
 import eu.europa.esig.dss.enumerations.DigestAlgorithm;
 import eu.europa.esig.dss.enumerations.EncryptionAlgorithm;
 import eu.europa.esig.dss.enumerations.Indication;
+import eu.europa.esig.dss.enumerations.KeyUsageBit;
 import eu.europa.esig.dss.enumerations.SignatureAlgorithm;
 import eu.europa.esig.dss.enumerations.SubIndication;
 import eu.europa.esig.dss.enumerations.TokenExtractionStrategy;
 import eu.europa.esig.dss.diagnostic.jaxb.XmlDigestMatcher;
 import eu.europa.esig.dss.model.DSSDocument;
 import eu.europa.esig.dss.model.InMemoryDocument;
+import eu.europa.esig.dss.model.x509.CertificateToken;
 import eu.europa.esig.dss.simplereport.SimpleReport;
 import eu.europa.esig.dss.spi.x509.CertificateSource;
 import eu.europa.esig.dss.spi.x509.aia.AIASource;
@@ -37,11 +39,15 @@ import io.mersel.dss.verify.api.exceptions.VerificationException;
 import io.mersel.dss.verify.api.models.*;
 import io.mersel.dss.verify.api.models.enums.SignaturePackaging;
 import io.mersel.dss.verify.api.models.enums.SignatureType;
+import io.mersel.dss.verify.api.models.enums.SignerCertificateProfile;
 import io.mersel.dss.verify.api.models.enums.RejectionCode;
 import io.mersel.dss.verify.api.models.enums.SuppressionCode;
 import io.mersel.dss.verify.api.models.enums.VerificationLevel;
+import io.mersel.dss.verify.api.services.util.SignerCertificateProfileDetector;
 import io.mersel.dss.verify.api.services.certificate.KamusmRootCertificateService;
 import io.mersel.dss.verify.api.services.certificate.RequestTrustContext;
+import io.mersel.dss.verify.api.services.compliance.TrComplianceChecker;
+import io.mersel.dss.verify.api.services.compliance.TrComplianceFinding;
 import io.mersel.dss.verify.api.services.notification.InvalidSignatureNotifier;
 import io.mersel.dss.verify.api.services.util.EcdsaXmlSignaturePreprocessor;
 import io.mersel.dss.verify.api.services.util.CertificateMaterialExtractor;
@@ -106,6 +112,14 @@ public class AdvancedSignatureVerificationService {
 
     @Autowired
     private RevocationInfoExtractor revocationInfoExtractor;
+
+    /**
+     * TR uyum kontrolleri (MDSS-TR-*). Yalnız
+     * {@code verification.tr-compliance.enabled=true} (varsayılan) iken çalışır.
+     * {@code required=false}: minimal test context'lerinde bean olmayabilir.
+     */
+    @Autowired(required = false)
+    private TrComplianceChecker trComplianceChecker;
 
     /**
      * DSS validation pipeline locale'i — her doğrulama akışında
@@ -581,6 +595,10 @@ public class AdvancedSignatureVerificationService {
             // CAdES/PAdES için map boş kalır; XAdES dışı imzalarda alan
             // JSON'a hiç düşmez (SignatureInfo NON_NULL).
             Map<String, SignaturePackaging> packagingBySignatureId = computeXadesPackaging(validator);
+            boolean trCompliance = config.isTrComplianceEnabled() && trComplianceChecker != null;
+            Map<String, AdvancedSignature> advancedSignatures = trCompliance
+                    ? collectAdvancedSignatures(validator)
+                    : Collections.<String, AdvancedSignature>emptyMap();
 
             // Sonuçları parse et. Orijinal XML byte'larını da geçiyoruz: TR-özel
             // legacy XAdES Type URI tespitinde detector imzanın gerçekten "yanlış
@@ -591,6 +609,10 @@ public class AdvancedSignatureVerificationService {
                     includeFailedConstraints);
             result.setTrustContext(trustContext.evidence(config.isOnlineValidationEnabled()));
             result.setPolicyContext(policy.context());
+            if (trCompliance) {
+                applyTrCompliance(result, reports.getDiagnosticData(), advancedSignatures, trustContext,
+                        !detachedContents.isEmpty());
+            }
 
             // Aşama: parse_result (DSS rapor → VerificationResult) bitti.
             recordStage("parse_result", stageStartNanos);
@@ -960,6 +982,151 @@ public class AdvancedSignatureVerificationService {
         return result;
     }
 
+    /** İmza kimliği → DSS imzası; karşı imzalar dahil (TR uyum kontrolleri için). */
+    private Map<String, AdvancedSignature> collectAdvancedSignatures(SignedDocumentValidator validator) {
+        Map<String, AdvancedSignature> result = new LinkedHashMap<>();
+        try {
+            Deque<AdvancedSignature> pending = new ArrayDeque<>(validator.getSignatures());
+            while (!pending.isEmpty()) {
+                AdvancedSignature signature = pending.pop();
+                if (signature == null || result.containsKey(signature.getId())) {
+                    continue;
+                }
+                result.put(signature.getId(), signature);
+                if (signature.getCounterSignatures() != null) {
+                    pending.addAll(signature.getCounterSignatures());
+                }
+            }
+        } catch (Exception e) {
+            logger.warn("TR uyum: DSS imza listesi okunamadı: {}", e.getMessage());
+        }
+        return result;
+    }
+
+    /**
+     * TR uyum kontrollerini her imzaya uygular ve belge sonucunu yeniden hesaplar.
+     * Bulgu üretilen imza geçersiz olur; DSS zaten reddetmişse DSS kararı korunur,
+     * bulgu yalnız kök nedeni ve gerekçeyi belirler. Kontrolün kendisi patlarsa
+     * DSS sonucu aynen kalır.
+     *
+     * @param originalDocumentProvided istekte {@code originalDocument} gönderildi mi; ayrık
+     *                                 imza yalnız bu belgeyle doğrulanırsa kabul edilir
+     */
+    void applyTrCompliance(VerificationResult result, DiagnosticData diagnosticData,
+                           Map<String, AdvancedSignature> advancedSignatures,
+                           RequestTrustContext trustContext,
+                           boolean originalDocumentProvided) {
+        if (result == null || diagnosticData == null
+                || result.getSignatures() == null || result.getSignatures().isEmpty()) {
+            return;
+        }
+        // Bozuk sertifika imzası adayları: etkin güven kökleri + belgedeki tüm sertifikalar.
+        List<CertificateToken> certificatePool = new ArrayList<>();
+        try {
+            certificatePool.addAll(trustContext.newSource().getCertificates());
+        } catch (RuntimeException e) {
+            logger.debug("TR uyum: güven kökleri okunamadı: {}", e.getMessage());
+        }
+        for (AdvancedSignature signature : advancedSignatures.values()) {
+            try {
+                certificatePool.addAll(signature.getCertificates());
+            } catch (RuntimeException e) {
+                logger.debug("TR uyum: imza sertifikaları okunamadı ({}): {}", signature.getId(), e.getMessage());
+            }
+        }
+        Date validationTime = diagnosticData.getValidationDate() != null
+                ? diagnosticData.getValidationDate() : new Date();
+        // Gömülü olmayan ara sertifika (BES / ES-T): DSS'in kullandığı önbellekli AIA kaynağı.
+        java.util.function.Function<java.security.cert.X509Certificate,
+                Collection<java.security.cert.X509Certificate>> issuerLookup = certificate -> {
+            List<java.security.cert.X509Certificate> issuers = new ArrayList<>();
+            if (cachedAiaSource == null || !config.isOnlineValidationEnabled()) {
+                return issuers;
+            }
+            for (CertificateToken token : cachedAiaSource.getCertificatesByAIA(new CertificateToken(certificate))) {
+                issuers.add(token.getCertificate());
+            }
+            return issuers;
+        };
+
+        boolean allValid = true;
+        for (SignatureInfo sigInfo : result.getSignatures()) {
+            SignatureWrapper wrapper = diagnosticData.getSignatureById(sigInfo.getSignatureId());
+            AdvancedSignature advanced = advancedSignatures.get(sigInfo.getSignatureId());
+            List<String> externalUris = advanced != null
+                    ? xadesPackagingDetector.externalReferenceUris(advanced)
+                    : Collections.<String>emptyList();
+            try {
+                List<TrComplianceFinding> findings = trComplianceChecker.evaluate(
+                        wrapper, certificatePool, externalUris, originalDocumentProvided,
+                        validationTime, issuerLookup);
+                if (!findings.isEmpty()) {
+                    applyTrFindings(sigInfo, findings);
+                }
+            } catch (RuntimeException e) {
+                logger.warn("TR uyum kontrolü çalıştırılamadı (signatureId={}); DSS sonucu korunuyor: {}",
+                        sigInfo.getSignatureId(), e.toString());
+            }
+            if (!sigInfo.isValid()) {
+                allValid = false;
+            }
+        }
+        result.setValid(allValid);
+        result.setStatus(allValid ? "VALID" : "INVALID");
+    }
+
+    static void applyTrFindings(SignatureInfo sigInfo, List<TrComplianceFinding> findings) {
+        String originalIndication = sigInfo.getIndication();
+        String originalSubIndication = sigInfo.getSubIndication();
+        List<AppliedRejection> rejections = sigInfo.getAppliedRejections() != null
+                ? new ArrayList<>(sigInfo.getAppliedRejections()) : new ArrayList<AppliedRejection>();
+        List<String> errors = new ArrayList<>();
+        List<FailedConstraint> constraints = new ArrayList<>();
+        for (TrComplianceFinding finding : findings) {
+            RejectionCode code = finding.getCode();
+            rejections.add(new AppliedRejection(code.getCode(), code.getTitle(), finding.getReason(),
+                    code.getSeverity(), originalIndication, originalSubIndication,
+                    finding.getEvidence(), code.getDocsUrl()));
+            errors.add("[" + code.getCode() + "] " + finding.getReason());
+            constraints.add(new FailedConstraint(code.getCode(), finding.getReason(), FailureCategory.ROOT_CAUSE));
+        }
+        sigInfo.setAppliedRejections(rejections);
+        if (sigInfo.getValidationErrors() != null) {
+            errors.addAll(sigInfo.getValidationErrors());
+        }
+        sigInfo.setValidationErrors(errors);
+        if (sigInfo.isValid()) {
+            TrComplianceFinding first = findings.get(0);
+            sigInfo.setValid(false);
+            sigInfo.setIndication(first.getIndication().name());
+            sigInfo.setSubIndication(first.getSubIndication() != null ? first.getSubIndication().name() : null);
+        }
+        promoteToRootCause(sigInfo, constraints);
+        logger.info("TR uyum kontrolü imzayı reddetti (signatureId={}, dssIndication={}, codes={})",
+                sigInfo.getSignatureId(), originalIndication, findings);
+    }
+
+    /**
+     * İmzayı reddeden Mersel kuralını ({@code MDSS-TR-*}) imzanın kök nedeni
+     * yapar: MA3 kuralı DSS'in jenerik BBB satırından daha kesin bir neden
+     * verir. Opt-in {@code failedConstraints} listesi istenmişse kurallar
+     * listenin başına eklenir; DSS satırları arkada korunur.
+     *
+     * @param causes {@link FailureCategory#ROOT_CAUSE} satırları; ilki kök
+     *               neden olur, boşsa hiçbir şey değişmez
+     */
+    static void promoteToRootCause(SignatureInfo sigInfo, List<FailedConstraint> causes) {
+        if (causes == null || causes.isEmpty()) {
+            return;
+        }
+        sigInfo.setRootCause(causes.get(0));
+        if (sigInfo.getFailedConstraints() != null) {
+            List<FailedConstraint> merged = new ArrayList<>(causes);
+            merged.addAll(sigInfo.getFailedConstraints());
+            sigInfo.setFailedConstraints(merged);
+        }
+    }
+
     /**
      * Gelişmiş doğrulama sonuçlarını parse eder.
      *
@@ -1095,7 +1262,25 @@ public class AdvancedSignatureVerificationService {
                                 signatureId, indication, subIndication, trAnomaly)
                         : null;
         boolean trToleranceApplied = trSuppression != null;
-        boolean trRejectionApplied = trRejection != null;
+
+        // Sertifika profili (mali mühür / e-imza) KeyUsage denetimi. Profil
+        // OID kanıtlarından tespit edilir; etkin politikadan bağımsız olarak
+        // profile uygun kural uygulanır. DSS PASSED dese bile ihlal varsa
+        // imza reddedilir (MDSS-TR-KEYUSAGE-PROFILE).
+        AppliedRejection keyUsageProfileRejection = config.isSignerKeyUsageProfileEnabled()
+                ? evaluateSignerKeyUsageProfileRejection(
+                        signatureId, indication, subIndication, signatureWrapper)
+                : null;
+
+        // Tüm rejection'lar tek listede toplanır; DSS verdict'i yalnızca
+        // profil KeyUsage ihlali değiştirebilir (yukarıya değil, aşağıya).
+        List<AppliedRejection> appliedRejections = new ArrayList<>();
+        if (trRejection != null) {
+            appliedRejections.add(trRejection);
+        }
+        if (keyUsageProfileRejection != null) {
+            appliedRejections.add(keyUsageProfileRejection);
+        }
 
         if (trToleranceApplied) {
             // İmzayı PASSED'a yükselttik. SubIndication artık anlamsız —
@@ -1105,12 +1290,20 @@ public class AdvancedSignatureVerificationService {
                     new ArrayList<>(java.util.Collections.singletonList(trSuppression)));
             indication = Indication.TOTAL_PASSED;
             subIndication = null;
-        } else if (trRejectionApplied) {
-            // Verdict'i değiştirmiyoruz; sadece neden reddedildiğini Mersel
-            // tanı koduyla zenginleştiriyoruz. DSS'in INDETERMINATE/SIG_CONSTRAINTS_FAILURE
-            // çıktısı korunur.
-            sigInfo.setAppliedRejections(
-                    new ArrayList<>(java.util.Collections.singletonList(trRejection)));
+        }
+        if (keyUsageProfileRejection != null) {
+            // DSS kararı ne olursa olsun profil ihlali imzayı geçersiz kılar.
+            // DSS'in asıl kararı rejection objesinin originalIndication
+            // alanında saklıdır. DSS'in bu durumdaki kendi semantiğiyle
+            // (KeyUsage constraint FAIL → INDETERMINATE / CHAIN_CONSTRAINTS_FAILURE)
+            // paralel bir verdict yazıyoruz.
+            indication = Indication.INDETERMINATE;
+            subIndication = SubIndication.CHAIN_CONSTRAINTS_FAILURE;
+        }
+        if (!appliedRejections.isEmpty()) {
+            // trRejection verdict'i değiştirmez (DSS zaten INVALID); yalnızca
+            // nedeni Mersel tanı koduyla zenginleştirir.
+            sigInfo.setAppliedRejections(appliedRejections);
         }
 
         boolean isValid = indication == Indication.TOTAL_PASSED || indication == Indication.PASSED;
@@ -1158,7 +1351,15 @@ public class AdvancedSignatureVerificationService {
 
         // Hatalar ve uyarılar
         collectErrorsAndWarnings(sigInfo, simpleReport, detailedReport, signatureId,
-                trToleranceApplied, trSuppression, trRejection, includeFailedConstraints);
+                trToleranceApplied, trSuppression, appliedRejections, includeFailedConstraints);
+        if (keyUsageProfileRejection != null) {
+            // TR uyum bulgularıyla aynı kontrat: imzayı reddeden profil kuralı
+            // kök nedendir. DSS PASSED dediğinde rootCause aksi halde boş
+            // kalırdı; DSS de reddettiyse jenerik BBB satırının önüne geçer.
+            promoteToRootCause(sigInfo, Collections.singletonList(new FailedConstraint(
+                    keyUsageProfileRejection.getCode(), keyUsageProfileRejection.getReason(),
+                    FailureCategory.ROOT_CAUSE)));
+        }
 
         // STRICT VALIDATION: Kritik hata varsa geçersiz say. Tolerance varken
         // collectErrorsAndWarnings hata yerine warning ekler, dolayısıyla bu
@@ -1302,6 +1503,116 @@ public class AdvancedSignatureVerificationService {
         } catch (NoSuchAlgorithmException e) {
             return null;
         }
+    }
+
+    /**
+     * İmzacı sertifikası profil (mali mühür / e-imza) KeyUsage denetimi —
+     * <strong>verdict değiştiren</strong> DSS sonrası gate kontrolü.
+     *
+     * <p>Sertifika profili OID kanıtlarından tespit edilir
+     * ({@link SignerCertificateProfileDetector}); hangi doğrulama politikası
+     * etkin olursa olsun profile uygun kural uygulanır:</p>
+     * <ul>
+     *   <li>e-imza/NES — {@code digitalSignature} VE {@code nonRepudiation}
+     *       birlikte zorunlu (örnek negatif vaka: yalnız digitalSignature
+     *       taşıyan QC sertifikası). DSS'in çok değerli imzacı listesini OR
+     *       olarak değerlendirmesi nedeniyle bu vaka DSS'ten PASSED
+     *       gelebilir; gate reddeder.</li>
+     *   <li>mali mühür — yalnız {@code digitalSignature} zorunlu; mühür
+     *       sertifikalarında nonRepudiation bulunmaz, aranmaz.</li>
+     *   <li>profil belirlenemedi — kural uygulanmaz; etkin politikanın kendi
+     *       KeyUsage constraint'i geçerli kalır.</li>
+     * </ul>
+     *
+     * <p>İhlal halinde {@code MDSS-TR-KEYUSAGE-PROFILE} ret kodu üretilir ve
+     * çağırıcı imzayı INVALID'e çevirir. Ret objesinin
+     * {@code originalIndication} alanına mevcut DSS kararı yazılır — bu
+     * metodun çağrı anında verdict henüz değişmemiştir.</p>
+     *
+     * <p>Config gate: {@code verification.signer-keyusage-profile-enabled}.
+     * Default açık.</p>
+     *
+     * @return ihlal varsa {@link AppliedRejection}; ihlal yoksa, profil
+     *         belirlenemediyse veya flag kapalıysa <code>null</code>.
+     */
+    private AppliedRejection evaluateSignerKeyUsageProfileRejection(
+            String signatureId,
+            Indication indication,
+            SubIndication subIndication,
+            SignatureWrapper signatureWrapper) {
+
+        if (signatureWrapper == null) {
+            return null;
+        }
+        CertificateWrapper signingCertificate;
+        try {
+            signingCertificate = signatureWrapper.getSigningCertificate();
+        } catch (Exception e) {
+            logger.debug("İmzacı sertifikası okunamadı (signatureId={}): {}",
+                    signatureId, e.getMessage());
+            return null;
+        }
+        if (signingCertificate == null) {
+            return null;
+        }
+
+        SignerCertificateProfile profile = SignerCertificateProfileDetector.detect(signingCertificate);
+        if (profile == SignerCertificateProfile.UNKNOWN) {
+            logger.debug("İmzacı sertifikası profili OID'lerden belirlenemedi; "
+                    + "profil KeyUsage kuralı uygulanmadı (signatureId={}).", signatureId);
+            return null;
+        }
+
+        List<KeyUsageBit> keyUsages;
+        try {
+            keyUsages = signingCertificate.getKeyUsages();
+        } catch (Exception e) {
+            logger.debug("İmzacı sertifikası KeyUsage bit'leri okunamadı (signatureId={}): {}",
+                    signatureId, e.getMessage());
+            return null;
+        }
+        List<KeyUsageBit> missing =
+                SignerCertificateProfileDetector.missingKeyUsageBits(profile, keyUsages);
+        if (missing.isEmpty()) {
+            return null;
+        }
+
+        RejectionCode rc = RejectionCode.MDSS_TR_KEYUSAGE_PROFILE;
+        String cn = signingCertificate.getReadableCertificateName();
+        logger.warn("İmzacı sertifikası profil KeyUsage ihlali (signatureId={}, code={}, "
+                        + "cn=\"{}\", profil={}, eksik={}).",
+                signatureId, rc.getCode(), cn, profile.getLabel(), missing);
+
+        List<String> presentBits = new ArrayList<>();
+        if (keyUsages != null) {
+            for (KeyUsageBit bit : keyUsages) {
+                presentBits.add(bit.getValue());
+            }
+        }
+        List<String> missingBits = new ArrayList<>();
+        for (KeyUsageBit bit : missing) {
+            missingBits.add(bit.getValue());
+        }
+
+        Map<String, Object> evidence = new LinkedHashMap<>();
+        evidence.put("profile", profile.name());
+        evidence.put("profileLabel", profile.getLabel());
+        evidence.put("presentKeyUsageBits", presentBits);
+        evidence.put("missingKeyUsageBits", missingBits);
+        evidence.put("signerCommonName", cn);
+
+        // originalIndication/subIndication mevcut DSS kararını taşır; verdict
+        // bu metoddan döndükten sonra çağırıcı tarafından INVALID'e çekilir.
+        return new AppliedRejection(
+                rc.getCode(),
+                rc.getTitle(),
+                rc.getDefaultReason() + " Profil: " + profile.getLabel()
+                        + ", eksik bit'ler: " + missingBits + ".",
+                rc.getSeverity(),
+                indication != null ? indication.name() : null,
+                subIndication != null ? subIndication.name() : null,
+                evidence,
+                rc.getDocsUrl());
     }
 
     /**
@@ -2336,7 +2647,7 @@ public class AdvancedSignatureVerificationService {
             String signatureId,
             boolean trToleranceApplied,
             AppliedSuppression trSuppression,
-            AppliedRejection trRejection,
+            List<AppliedRejection> appliedRejections,
             boolean includeFailedConstraints) {
 
         List<String> errors = new ArrayList<>();
@@ -2369,11 +2680,17 @@ public class AdvancedSignatureVerificationService {
                     collectFailingBbbConstraintDetails(detailedReport, signatureId));
         }
 
-        // TR-özel rejection devrede mi? Verdict değişmez, ama DSS'in jenerik
-        // SubIndication mesajının yanına Mersel kataloglu tanı kodunu da
+        // Mersel kataloglu rejection'lar devrede mi? Verdict değişmese de
+        // DSS'in jenerik SubIndication mesajının yanına Mersel tanı kodunu
         // ekliyoruz ki operatör log/grep ile hızlıca filtreleyebilsin.
-        if (trRejection != null && trRejection.getCode() != null) {
-            errors.add("[" + trRejection.getCode() + "] " + trRejection.getReason());
+        boolean anyMerselRejection = false;
+        if (appliedRejections != null) {
+            for (AppliedRejection rejection : appliedRejections) {
+                if (rejection != null && rejection.getCode() != null) {
+                    errors.add("[" + rejection.getCode() + "] " + rejection.getReason());
+                    anyMerselRejection = true;
+                }
+            }
         }
 
         // SubIndication kontrolü
@@ -2393,14 +2710,14 @@ public class AdvancedSignatureVerificationService {
                         + "(\"…/v1.3.2/XAdES.xsd#SignedProperties\"). "
                         + "Kriptografik bütünlük doğrulandı; tolerans uygulandı.";
                 warnings.add("[" + code + "] " + detail);
-            } else if (trRejection != null && subIndication == SubIndication.SIG_CONSTRAINTS_FAILURE) {
+            } else if (anyMerselRejection && subIndication == SubIndication.SIG_CONSTRAINTS_FAILURE) {
                 // Rejection enrichment devrede: Mersel kataloglu satır zaten
                 // yukarıda eklendi. Jenerik "(Kritik hata)" satırını eklemek
                 // operatöre aynı sorun için ikinci bir hata satırı gösterir
                 // ve "kaç hata var?" sayımını yanıltır; bu yüzden atlanır.
                 logger.debug("SIG_CONSTRAINTS_FAILURE detail line suppressed because "
-                        + "Mersel rejection code is already in validationErrors "
-                        + "(signatureId={}, code={}).", signatureId, trRejection.getCode());
+                        + "a Mersel rejection code is already in validationErrors "
+                        + "(signatureId={}).", signatureId);
             } else {
                 String subIndicationMsg = "İmza uyarısı: " + subIndication.name();
 

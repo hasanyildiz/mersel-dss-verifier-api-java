@@ -13,6 +13,7 @@ import java.io.ByteArrayInputStream;
 import java.nio.charset.StandardCharsets;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.assertNull;
 
 /**
@@ -297,6 +298,34 @@ class XadesSignaturePackagingDetectorTest {
     }
 
     // ---------- Helpers ----------
+
+    // ---------- externalReferenceUris (TR uyum: ayrık imza kuralı) ----------
+
+    @Test
+    @DisplayName("Belge dışındaki dosyaya referans → ayrık imza URI'si döner (ESXL1_MM_11 yapısı)")
+    void externalReferenceUris_detachedFile_returnsUri() throws Exception {
+        Element sig = parseSignature(buildSignature(
+                referenceSignedProperties("#xades-id-1"),
+                referenceData("./enveloped-content.xml", false, null)
+        ));
+
+        assertEquals(java.util.Collections.singletonList("./enveloped-content.xml"),
+                detector.externalReferenceUris(sig));
+    }
+
+    @Test
+    @DisplayName("Enveloped, boş URI ve aynı belgeye #id referansları ayrık sayılmaz")
+    void externalReferenceUris_sameDocumentReferences_returnsEmpty() throws Exception {
+        Element sig = parseSignature(buildSignature(
+                referenceSignedProperties("#xades-id-1"),
+                referenceData("", true, null),
+                referenceData("#Object-Id-1", false, null),
+                referenceData("#sig-value-1", false, "http://uri.etsi.org/01903#CountersignedSignature"),
+                referenceKeyInfo("#keyInfo-id-1")
+        ));
+
+        assertTrue(detector.externalReferenceUris(sig).isEmpty());
+    }
 
     private String buildSignature(String... references) {
         StringBuilder sb = new StringBuilder();
