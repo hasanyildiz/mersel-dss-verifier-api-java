@@ -179,4 +179,54 @@ class KeyUsageCheckTest {
                 SubContext.SIGNING_CERT,
                 rule(Level.FAIL)));
     }
+
+    // ------------------------------------------------------------------
+    // Mali mühür: nonRepudiation listelense de aranmaz (ESXL1_MM_37)
+    // ------------------------------------------------------------------
+
+    /**
+     * Arayüzün eski politika şablonu imzacı için nonRepudiation + digitalSignature
+     * listeliyordu; AND semantiğiyle geçerli mali mühür imzası (yalnız
+     * digitalSignature) reddediliyordu. Mühür sertifikasında nonRepudiation
+     * aranmaz; digitalSignature yine zorunludur.
+     */
+    @Test
+    void sealCertificate_ignoresNonRepudiation_inMultiValueSignerList() {
+        CertificateWrapper seal = sealCertificateWith(KeyUsageBit.DIGITAL_SIGNATURE);
+        assertTrue(process(seal, SubContext.SIGNING_CERT,
+                rule(Level.FAIL, "nonRepudiation", "digitalSignature")));
+        assertFalse(process(sealCertificateWith(KeyUsageBit.KEY_ENCIPHERMENT), SubContext.SIGNING_CERT,
+                rule(Level.FAIL, "nonRepudiation", "digitalSignature")));
+    }
+
+    /** NES / e-imza sertifikasında AND semantiği aynen kalır. */
+    @Test
+    void nesCertificate_stillNeedsNonRepudiation() {
+        CertificateWrapper nes = new CertificateWrapper(new XmlCertificate()) {
+            @Override
+            public List<KeyUsageBit> getKeyUsages() {
+                return Collections.singletonList(KeyUsageBit.DIGITAL_SIGNATURE);
+            }
+
+            @Override
+            public List<String> getPolicyIds() {
+                return Collections.singletonList("2.16.792.1.2.1.1.5.7.1.1");
+            }
+        };
+        assertFalse(process(nes, SubContext.SIGNING_CERT, rule(Level.FAIL, "nonRepudiation", "digitalSignature")));
+    }
+
+    private static CertificateWrapper sealCertificateWith(KeyUsageBit... bits) {
+        return new CertificateWrapper(new XmlCertificate()) {
+            @Override
+            public List<KeyUsageBit> getKeyUsages() {
+                return Arrays.asList(bits);
+            }
+
+            @Override
+            public List<String> getPolicyIds() {
+                return Collections.singletonList("2.16.792.1.2.1.1.5.7.4.1");
+            }
+        };
+    }
 }

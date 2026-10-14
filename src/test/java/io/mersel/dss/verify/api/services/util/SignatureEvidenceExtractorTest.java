@@ -4,14 +4,19 @@ import eu.europa.esig.dss.diagnostic.CertificateWrapper;
 import eu.europa.esig.dss.diagnostic.SignatureWrapper;
 import eu.europa.esig.dss.detailedreport.DetailedReport;
 import eu.europa.esig.dss.jaxb.object.Message;
+import eu.europa.esig.dss.diagnostic.jaxb.XmlBasicSignature;
 import eu.europa.esig.dss.diagnostic.jaxb.XmlCertificate;
 import eu.europa.esig.dss.diagnostic.jaxb.XmlDigestMatcher;
 import eu.europa.esig.dss.diagnostic.jaxb.XmlSignature;
 import eu.europa.esig.dss.enumerations.DigestAlgorithm;
 import eu.europa.esig.dss.enumerations.DigestMatcherType;
+import eu.europa.esig.dss.enumerations.Indication;
+import eu.europa.esig.dss.enumerations.SubIndication;
 import io.mersel.dss.verify.api.models.SignatureInfo;
 import io.mersel.dss.verify.api.models.SignedReferenceInfo;
+import io.mersel.dss.verify.api.models.enums.RejectionCode;
 import io.mersel.dss.verify.api.models.enums.SignerCertificateProfile;
+import io.mersel.dss.verify.api.services.compliance.TrComplianceFinding;
 import org.junit.jupiter.api.Test;
 
 import java.util.Arrays;
@@ -57,24 +62,105 @@ class SignatureEvidenceExtractorTest {
         assertFalse(counterInfo.isValid());
         assertEquals("TOTAL_FAILED", counterInfo.getIndication());
         assertTrue(counterInfo.getRecommendations().stream().anyMatch(r -> "SIGNED_REFERENCE_INCOMPLETE".equals(r.getCode())));
-        assertTrue(counterInfo.getRecommendations().stream().anyMatch(r -> "ARCHIVE_TIMESTAMP_MISSING".equals(r.getCode()) && "INFO".equals(r.getSeverity())));
+        // Arşiv zaman damgası yokluğu tek başına öneri değildir (her -XL imzada çıkıyordu).
+        assertFalse(counterInfo.getRecommendations().stream().anyMatch(r -> r.getCode().startsWith("ARCHIVE_")));
     }
 
     @Test
-    void mapsDigestAndRevocationWarningsToArchivalWithoutOverridingVerdict() {
+    void dssDigestWarningMapsToArchivalButRevocationFreshnessWarningsDoNot() {
+        SignatureInfo info = validInfo();
+        DetailedReport report = mock(DetailedReport.class);
+        when(report.getAdESValidationWarnings("S1")).thenReturn(Arrays.asList(
+                new Message("ASCCM_DAA_ANS", "Digest is not allowed by policy"),
+                new Message("BBB_XCV_IARDPFC_ANS", "No acceptable revocation evidence"),
+                new Message("BBB_RFC_IRIF_ANS", "Revocation data is not fresh")));
+        SignatureEvidenceExtractor.enrichPolicyRecommendations(info, report);
+        assertTrue(info.isValid());
+        assertEquals("TOTAL_PASSED", info.getIndication());
+        assertTrue(hasRecommendation(info, "ARCHIVE_REQUIRED_DIGEST_POLICY"));
+        // ESXL1_MM_41: politika tazelik uyarısı arşiv gerekçesi değildir.
+        assertFalse(hasRecommendation(info, "ARCHIVE_REQUIRED_REVOCATION_EVIDENCE"));
+    }
+
+    @Test
+    void sha1SignatureNeedsArchivingEvenWhenPolicyAcceptsSha1() {
+        SignatureInfo info = validInfo();
+        SignatureEvidenceExtractor.enrichPolicyRecommendations(info, mock(DetailedReport.class),
+                signatureWithDigest(DigestAlgorithm.SHA1));
+        assertTrue(info.isValid());
+        assertEquals(1, info.getRecommendations().size());
+        assertEquals("ARCHIVE_REQUIRED_DIGEST_POLICY", info.getRecommendations().get(0).getCode());
+        assertEquals("Geçersiz Özet Algoritması, İmza En Kısa Sürede Arşivlenmelidir",
+                info.getRecommendations().get(0).getTitle());
+        assertTrue(info.getRecommendations().get(0).getDescription().contains("SHA1"));
+    }
+
+    @Test
+    void btkDigestAlgorithmsNeedNoArchiving() {
+        for (DigestAlgorithm algorithm : Arrays.asList(DigestAlgorithm.SHA256, DigestAlgorithm.SHA384,
+                DigestAlgorithm.SHA512, DigestAlgorithm.SHA3_256)) {
+            SignatureInfo info = validInfo();
+            SignatureEvidenceExtractor.enrichPolicyRecommendations(info, mock(DetailedReport.class),
+                    signatureWithDigest(algorithm));
+            assertTrue(info.getRecommendations().isEmpty(), algorithm.name());
+        }
+    }
+
+    @Test
+    void invalidSignatureGetsNoArchiveRecommendation() {
+        SignatureInfo info = validInfo();
+        info.setValid(false);
+        info.setIndication("TOTAL_FAILED");
+        SignatureEvidenceExtractor.enrichPolicyRecommendations(info, mock(DetailedReport.class),
+                signatureWithDigest(DigestAlgorithm.SHA1));
+        assertFalse(hasRecommendation(info, "ARCHIVE_REQUIRED_DIGEST_POLICY"));
+    }
+
+    @Test
+    void rejectionDropsArchiveAdviceAndAsksToCompleteMissingReferences() {
+        SignatureInfo info = validInfo();
+        SignatureEvidenceExtractor.enrichPolicyRecommendations(info, mock(DetailedReport.class),
+                signatureWithDigest(DigestAlgorithm.SHA1));
+        info.setValid(false);
+        SignatureEvidenceExtractor.applyRejectionRecommendations(info, Arrays.asList(new TrComplianceFinding(
+                RejectionCode.MDSS_TR_CERT_REF_MISSING, "Kök sertifikası ('CN=Root A') referans bilgisi yok.",
+                Indication.INDETERMINATE, SubIndication.CERTIFICATE_CHAIN_GENERAL_FAILURE, null)));
+        assertFalse(hasRecommendation(info, "ARCHIVE_REQUIRED_DIGEST_POLICY"));
+        assertEquals("VALIDATION_EVIDENCE_INCOMPLETE", info.getRecommendations().get(0).getCode());
+        assertEquals("Eksik bilginin tamamlanması gerekmektedir", info.getRecommendations().get(0).getTitle());
+        assertTrue(info.getRecommendations().get(0).getDescription().contains("Kök sertifikası"));
+    }
+
+    @Test
+    void wrongReferenceIsNotReportedAsMissingEvidence() {
+        SignatureInfo info = validInfo();
+        info.setValid(false);
+        SignatureEvidenceExtractor.applyRejectionRecommendations(info, Arrays.asList(new TrComplianceFinding(
+                RejectionCode.MDSS_TR_CERT_REF_INVALID, "hatalı", Indication.INDETERMINATE,
+                SubIndication.CERTIFICATE_CHAIN_GENERAL_FAILURE, null)));
+        assertFalse(hasRecommendation(info, "VALIDATION_EVIDENCE_INCOMPLETE"));
+    }
+
+    private static SignatureInfo validInfo() {
         SignatureInfo info = new SignatureInfo();
         info.setSignatureId("S1");
         info.setValid(true);
         info.setIndication("TOTAL_PASSED");
-        DetailedReport report = mock(DetailedReport.class);
-        when(report.getAdESValidationWarnings("S1")).thenReturn(Arrays.asList(
-                new Message("ASCCM_DAA_ANS", "Digest is not allowed by policy"),
-                new Message("BBB_XCV_IARDPFC_ANS", "No acceptable revocation evidence")));
-        SignatureEvidenceExtractor.enrichPolicyRecommendations(info, report);
-        assertTrue(info.isValid());
-        assertEquals("TOTAL_PASSED", info.getIndication());
-        assertTrue(info.getRecommendations().stream().anyMatch(r -> "ARCHIVE_REQUIRED_DIGEST_POLICY".equals(r.getCode())));
-        assertTrue(info.getRecommendations().stream().anyMatch(r -> "ARCHIVE_REQUIRED_REVOCATION_EVIDENCE".equals(r.getCode())));
+        return info;
+    }
+
+    private static boolean hasRecommendation(SignatureInfo info, String code) {
+        return info.getRecommendations() != null
+                && info.getRecommendations().stream().anyMatch(r -> code.equals(r.getCode()));
+    }
+
+    private static SignatureWrapper signatureWithDigest(DigestAlgorithm algorithm) {
+        XmlSignature signature = new XmlSignature();
+        signature.setId("S1");
+        XmlBasicSignature basic = new XmlBasicSignature();
+        basic.setDigestAlgoUsedToSignThisToken(algorithm);
+        signature.setBasicSignature(basic);
+        return new SignatureWrapper(signature);
     }
 
     @Test

@@ -62,6 +62,8 @@ import eu.europa.esig.dss.i18n.MessageTag;
 import eu.europa.esig.dss.model.policy.MultiValuesRule;
 import eu.europa.esig.dss.validation.process.ValidationProcessUtils;
 import eu.europa.esig.dss.validation.process.bbb.AbstractMultiValuesCheckItem;
+import io.mersel.dss.verify.api.models.enums.SignerCertificateProfile;
+import io.mersel.dss.verify.api.services.util.SignerCertificateProfileDetector;
 
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -138,14 +140,24 @@ public class KeyUsageCheck extends AbstractMultiValuesCheckItem<XmlSubXCV> {
 	 * bulunmalıdır. "*" (any) DSS semantiğiyle herhangi bir mevcut değer
 	 * tarafından karşılanır ve zorunlu kümeden çıkarılır. KeyUsage uzantısı
 	 * hiç bulunmayan sertifikalar orijinal davranışta olduğu gibi geçemez.
+	 *
+	 * <p>Mali mühür sertifikasında {@code nonRepudiation} aranmaz: mühür
+	 * sertifikaları bu bit'i taşımaz ve profil kuralı (MDSS-TR-KEYUSAGE-PROFILE)
+	 * mühürde yalnız digitalSignature ister. Eski politikalar (ör. arayüzün
+	 * nonRepudiation + digitalSignature listeleyen şablonu) geçerli mühür
+	 * imzalarını bu yüzden reddetmez.</p>
 	 */
 	private boolean processAllValuesCheck(List<String> values) {
 		List<String> expectedValues = expectedKeyUsages.getValues();
 		if (expectedValues == null || expectedValues.isEmpty()) {
 			return processValuesCheck(values);
 		}
+		boolean seal = SignerCertificateProfileDetector.detect(certificate) == SignerCertificateProfile.MALI_MUHUR;
 		for (String expectedValue : expectedValues) {
 			if (ALL_VALUE.equals(expectedValue)) {
+				continue;
+			}
+			if (seal && KeyUsageBit.NON_REPUDIATION.getValue().equals(expectedValue)) {
 				continue;
 			}
 			if (!values.contains(expectedValue)) {

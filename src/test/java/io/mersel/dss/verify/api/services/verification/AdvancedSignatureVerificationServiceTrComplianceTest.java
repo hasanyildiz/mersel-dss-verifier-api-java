@@ -118,6 +118,25 @@ class AdvancedSignatureVerificationServiceTrComplianceTest {
         return new FailedConstraint(code.getCode(), message, FailureCategory.ROOT_CAUSE);
     }
 
+    /**
+     * ESXL1_MM_47: strict mode zaman damgası mesaj özeti yüzünden imzayı geçersiz saymış
+     * ama DSS kararı TOTAL_PASSED kalmıştı (valid=false + TOTAL_PASSED). Bulgu kararı yazar.
+     */
+    @Test
+    void strictModeInvalidatedSignature_withPassedIndication_getsTheFindingVerdict() {
+        SignatureInfo signature = signature(false, "TOTAL_PASSED", null);
+
+        AdvancedSignatureVerificationService.applyTrFindings(signature, Collections.singletonList(
+                new TrComplianceFinding(RejectionCode.MDSS_TR_TIMESTAMP_INVALID, "mesaj özeti eşleşmiyor",
+                        Indication.INDETERMINATE, SubIndication.SIG_CONSTRAINTS_FAILURE,
+                        Collections.<String, Object>emptyMap())));
+
+        assertFalse(signature.isValid());
+        assertEquals("INDETERMINATE", signature.getIndication());
+        assertEquals("SIG_CONSTRAINTS_FAILURE", signature.getSubIndication());
+        assertEquals("MDSS-TR-TIMESTAMP-INVALID", signature.getRootCause().getKey());
+    }
+
     private static SignatureInfo signature(boolean valid, String indication, String subIndication) {
         SignatureInfo signature = new SignatureInfo();
         signature.setSignatureId("S-1");

@@ -37,16 +37,15 @@ Standalone timestamp responses add `certificateChain`. The TSA signer is selecte
 
 | Code | Condition |
 | --- | --- |
-| `ARCHIVE_TIMESTAMP_MISSING` | No archive timestamp was reported. Informational, not an urgent warning. |
 | `TRUST_CHAIN_INCOMPLETE` | DSS did not report a trusted chain. |
 | `REVOCATION_EVIDENCE_MISSING` | Chain revocation status is unknown/not checked. |
 | `TIMESTAMP_VALIDATION_INCOMPLETE` | A timestamp conclusion is missing or unsuccessful. |
 | `SIGNED_REFERENCE_INCOMPLETE` | A signed reference is missing, not intact, or duplicated. |
-| `ARCHIVE_REQUIRED_DIGEST_POLICY` | A valid signature has an explicit DSS digest-policy warning. |
-| `ARCHIVE_REQUIRED_REVOCATION_EVIDENCE` | A valid signature has an explicit DSS revocation-evidence warning (including timestamp evidence). |
-| `VALIDATION_EVIDENCE_INCOMPLETE` | An unsuccessful result explicitly lacks required certificate, revocation or signed-content evidence. |
+| `ARCHIVE_REQUIRED_DIGEST_POLICY` | A valid, non-archived signature (or one of its signed references) uses a digest algorithm outside the BTK list (SHA2-256/384/512, SHA3-256/384/512; e.g. SHA-1), or DSS reported a digest-policy warning. Title: "Geçersiz Özet Algoritması, İmza En Kısa Sürede Arşivlenmelidir". |
+| `ARCHIVE_REQUIRED_REVOCATION_EVIDENCE` | A valid, non-archived signature used a certificate other than the signer certificate (intermediate CA, OCSP responder, TSA) that was revoked after the control time. DSS revocation freshness warnings are not archive reasons. |
+| `VALIDATION_EVIDENCE_INCOMPLETE` | An unsuccessful result explicitly lacks required certificate, revocation or signed-content evidence, including `MDSS-TR-CERT-REF-MISSING` and `MDSS-TR-REVOCATION-DATA-MISSING`. Title: "Eksik bilginin tamamlanması gerekmektedir". |
 
-Preservation guidance is based on DSS evidence. It does not silently apply MA3 policies or claim that adding an archive timestamp repairs an invalid signature.
+Preservation guidance is based on DSS evidence and the MA3 archive rules of the TÜBİTAK preparation guide (§2.1). Archive recommendations are only given for valid signatures without an archive timestamp; they never claim that adding an archive timestamp repairs an invalid signature. `ARCHIVE_TIMESTAMP_MISSING` is no longer emitted: a missing archive timestamp on its own is not a reason to archive.
 
 ## Local verification
 

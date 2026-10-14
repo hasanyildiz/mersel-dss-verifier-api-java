@@ -8,7 +8,7 @@ yerine geçer.
 
 | Gölge sınıf | DSS sürümü | Değişiklik |
 | --- | --- | --- |
-| `eu.europa.esig.dss.validation.process.bbb.xcv.sub.checks.KeyUsageCheck` | 6.3 | İmzacı sertifikası (`SubContext.SIGNING_CERT`) ve birden fazla beklenen değer varsa `<KeyUsage>` listesi **VE (AND)** olarak değerlendirilir: tüm bit'ler sertifikada bulunmalıdır. CA/TSA zincir sertifikaları ve tek değerli listeler orijinal OR semantiğini korur. |
+| `eu.europa.esig.dss.validation.process.bbb.xcv.sub.checks.KeyUsageCheck` | 6.3 | İmzacı sertifikası (`SubContext.SIGNING_CERT`) ve birden fazla beklenen değer varsa `<KeyUsage>` listesi **VE (AND)** olarak değerlendirilir: tüm bit'ler sertifikada bulunmalıdır. Mali mühür sertifikasında (`SignerCertificateProfileDetector` → `MALI_MUHUR`) listedeki `nonRepudiation` aranmaz. CA/TSA zincir sertifikaları ve tek değerli listeler orijinal OR semantiğini korur. |
 
 ## Neden
 
@@ -27,6 +27,11 @@ katmanında OID kanıtlarından tespit edilir
 e-imza/NES'te `digitalSignature` **ve** `nonRepudiation` birlikte zorunlu,
 mali mühürde yalnız `digitalSignature`. Böylece operatörün "mali mühür mü
 e-imza mı" politikası seçmesi gerekmez.
+
+Eski politikalar (ör. arayüzün `nonRepudiation` + `digitalSignature` listeleyen
+şablonu) bu yüzden geçerli mali mühür imzasını reddetmez: mühür sertifikasında
+`nonRepudiation` AND kümesinden çıkarılır, `digitalSignature` yine zorunludur
+(`ESXL1_MM_37`).
 
 Built-in politikalar bu yüzden imzacı KeyUsage bloklarında **tek Id**
 (`digitalSignature`) listeler — çok değerli liste VE semantiğine

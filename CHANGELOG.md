@@ -7,6 +7,92 @@ ve bu proje [Semantic Versioning 2.0.0](https://semver.org/spec/v2.0.0.html) kul
 
 ## [Unreleased]
 
+> **Canlı ortam notu:** Bu sürüm doğrulama kararlarını değiştirir. Sıkı referans
+> kuralları (`TR_STRICT_REFERENCE_ENABLED`, varsayılan **açık**, yalnız
+> `TR_COMPLIANCE_CHECKS_ENABLED` açıkken etkili) uzun dönemli imzada imzanın kendi
+> doğrulama verisini zorunlu kılar: çevrimiçi veya zaman damgası içinden bulunan
+> geçerli veri artık eksik / bozuk / süresi dolmuş referans verisini kurtarmaz.
+> Zaman damgası ve güven kökü kuralları TR uyum bayrağıyla her imza seviyesinde
+> çalışır. TÜBİTAK örnek paketinde (371 dosya, RootA–D, canlı politika) 136
+> dosya geçerliden geçersize döndü (tamamı paketteki olumsuz senaryolar); 4 mali
+> mühür örneği (`*_37`) geçersizden geçerliye döndü, kripto süitinin RSA /
+> RSA-PSS örnekleri geçerli kalır.
+
+### Added
+- **Sıkı referans kullanımı** (`verification.tr-compliance.strict-reference-enabled`,
+  `TR_STRICT_REFERENCE_ENABLED`) — MA3 `force-strict-reference-use=true` eşdeğeri,
+  `ValidationDataChecker`. Uzun dönemli imzada (-C / -X / -XL / -A):
+  - `MDSS-TR-CERT-REF-MISSING` / `MDSS-TR-CERT-REF-INVALID` — zincirdeki CA
+    sertifikası (kök / alt kök) `CompleteCertificateRefs` içinde yok veya özeti
+    eşleşmiyor; zaman damgası zincirinin CA'sı imzanın doğrulama verisinde yok
+    (`ESXL1_MM_54`, `_57`–`_60`, `_76`).
+  - `MDSS-TR-CERT-VALUE-MISSING` — zincirdeki CA sertifikası `CertificateValues`
+    içinde yok; güven deposu / AIA ile bulunan sertifika kullanılmaz (`ESXL1_MM_79`, `_81`).
+  - `MDSS-TR-REVOCATION-REF-MISSING` / `MDSS-TR-REVOCATION-REF-INVALID` —
+    `RevocationValues` ile `CompleteRevocationRefs` eşleşmiyor: referans yok, özeti
+    hatalı veya iptal değeri değiştirilmiş (`ESXL1_MM_61`–`_68`, `_84`, `_88`, `_90`);
+    değeri olmayan referans `MDSS-TR-REVOCATION-DATA-MISSING` (`_83`, `_85`–`_87`, `_89`).
+  - İmzacı zincirinin iptal durumu yalnız `RevocationValues` verisiyle
+    değerlendirilir; referans verilen her SİL / OCSP kabul edilebilir olmalı.
+    Zaman damgası zinciri için damganın kendi içindeki veri de kullanılır:
+    `MDSS-TR-REVOCATION-DATA-MISSING`, `MDSS-TR-REVOCATION-SIGNATURE-INVALID`
+    (bozuk SİL / OCSP; DSS'in bağlayamadığı bozuk SİL düzenleyici DN'inden
+    bulunur), `MDSS-TR-OCSP-EXPIRED` (kontrol zamanından 24 saatten eski,
+    `nextUpdate`'siz cevap), `MDSS-TR-OCSP-RESPONDER-INVALID` (OCSP sertifikası
+    cevap anında süresi dolmuş, imzası bozuk veya iptal edilmiş),
+    `MDSS-TR-CERT-REVOKED` (alt kök veya zaman damgası sertifikası kontrol
+    zamanından önce iptal edilmiş). `MDSS-TR-CRL-EXPIRED` bu veriyle de üretilir
+    (`ESXL1_MM_19`, `_20`, `_23`, `_27`–`_35`, `_51`, `_55`, `_56`, `_73`, `_77`, `_78`).
+- BES / ES-T (ve sıkı referans kapalıyken) aynı iptal kuralları **esnek** çalışır:
+  DSS'in bulduğu veri (imzadaki, çevrimiçi; zaman damgası içindeki veri yalnız TSA
+  zinciri için), biri yeterli, veri yokluğu ret nedeni değil. Alt kök / zaman damgası
+  sertifikası kontrol zamanından önce iptal edilmişse veya bulunan verinin hiçbiri
+  kabul edilebilir değilse reddedilir (`BES_19`, `_27`, `_30`, `_31`, `EST_19`, `_27`,
+  `_30`, `_51`, `_55`). Eski `checkCrlValidity` kuralı bunun içine alındı.
+- Her imza seviyesinde (TR uyum bayrağı):
+  - `MDSS-TR-TRUST-ANCHOR-SIGNATURE-INVALID` — imzacı veya zaman damgası
+    zincirinin kendinden imzalı kökünün imzası bozuk; güven deposunda olması
+    yetmez (`ESXL1_MM_36`, `_53`, `_75`).
+  - `MDSS-TR-TIMESTAMP-INVALID` — zaman damgasının imzası veya mesaj özeti bozuk
+    (`ESXL1_MM_47`, `_48`, `_70`).
+  - `MDSS-TR-TSA-CERT-INVALID` — TSA sertifikası damga anında geçersiz, imzası
+    bozuk veya güvenilir köke bağlanamıyor (`ESXL1_MM_49`, `_50`, `_71`, `_72`).
+- Eksik referans / iptal verisi bulgusuna `VALIDATION_EVIDENCE_INCOMPLETE`
+  ("Eksik bilginin tamamlanması gerekmektedir") önerisi eşlik eder.
+
+### Changed
+- `signer-strict` (varsayılan profil): imzacı ve karşı imza `RevocationFreshness`
+  FAIL → WARN. Kural iptal verisinin doğrulama anına göre son 24 saatte
+  yayımlanmasını istiyordu; uzun dönemli imzadaki (imzadan önce yayımlanmış, hâlâ
+  geçerli) SİL'ler yüzünden her -XL / -A imza `TRY_LATER` ile reddediliyordu. Canlı
+  değerlendirme sunucusu bu yüzden arayüzden düzenlenmiş özel XML kullanıyordu (eski
+  şablon `ESXL1_MM_37`'yi bozdu). Geçerlilik penceresi artık `MDSS-TR-CRL-EXPIRED` /
+  `MDSS-TR-OCSP-EXPIRED` ile denetlenir. Karşı imza kuralı da WARN olduğu için seri imza
+  örnekleri (`*_serial`) geçerli döner. TÜBİTAK değerlendirmesi yerleşik
+  `signer-strict` ile yapılabilir.
+- Arşiv önerileri rehberin §2.1 kuralına göre: yalnız geçerli ve arşiv zaman
+  damgası olmayan imzada.
+  - `ARCHIVE_REQUIRED_DIGEST_POLICY` ("Geçersiz Özet Algoritması, İmza En Kısa
+    Sürede Arşivlenmelidir"): imza veya imzalı referansı BTK listesi
+    (SHA2-256/384/512, SHA3-256/384/512) dışında özet algoritması kullanıyorsa;
+    SHA-1 politikada kabul edildiği için DSS uyarısı hiç gelmiyordu (`ESXL1_MM_4`).
+  - `ARCHIVE_REQUIRED_REVOCATION_EVIDENCE` ("Dosya arşivlenmelidir"): imzacı
+    dışında doğrulamada kullanılan bir sertifika (alt kök, OCSP, zaman damgası)
+    kontrol zamanından sonra iptal edildiyse (`ESXL1_MM_43`–`_46`, `_52`, `_74`).
+    DSS iptal verisi tazelik uyarıları artık arşiv gerekçesi değildir; neredeyse
+    her -XL imzada "Dosya arşivlenmelidir" çıkıyordu.
+  - `ARCHIVE_TIMESTAMP_MISSING` (INFO) kaldırıldı.
+  - TR uyum kuralı imzayı reddederse arşiv önerileri kaldırılır.
+- Gölgelenen `KeyUsageCheck`: mali mühür sertifikasında imzacı listesindeki
+  `nonRepudiation` aranmaz. Arayüzün eski politika şablonu (`nonRepudiation` +
+  `digitalSignature`) AND semantiğiyle geçerli mali mühür imzasını
+  (`ESXL1_MM_37`) reddediyordu.
+
+### Fixed
+- Strict mode imzayı zaman damgası mesaj özeti yüzünden geçersiz saydığında
+  karar `TOTAL_PASSED` kalıyordu (`valid=false` + `TOTAL_PASSED`, `ESXL1_MM_47`);
+  karar artık TR bulgusundan gelir.
+
 ## [1.2.1] - 2026-10-11
 
 ### Fixed

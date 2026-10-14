@@ -373,7 +373,7 @@ DSS_POLICY_PATH=                    # boş = profil kullan
 
 **Profil seçim kılavuzu** — özet:
 
-- **`signer-strict` (default)**: İmzacının iptali için zero-tolerance, ama ara CA OCSP responder'larının geçici kesintilerinde imzayı feda etmez. Türkiye e-Fatura / e-Defter ekosisteminde KamuSM ara CA'larının operasyonel realitesini gözeten **pragmatik denge**. Tüketici `chainRevocationStatus: LEAF_GOOD_CA_REVOKED` görse bile `valid: true` döner — politika tercihini explicit hale getirir.
+- **`signer-strict` (default)**: İmzacının iptali için zero-tolerance, ama ara CA OCSP responder'larının geçici kesintilerinde imzayı feda etmez. Türkiye e-Fatura / e-Defter ekosisteminde KamuSM ara CA'larının operasyonel realitesini gözeten **pragmatik denge**. Ara CA için iptal verisi bulunamaması imzayı reddettirmez; ancak TR uyum kontrolleri açıkken (`TR_COMPLIANCE_CHECKS_ENABLED`, varsayılan) kontrol zamanından önce iptal edilmiş ara CA `MDSS-TR-CERT-REVOKED` ile reddedilir. İmzacı ve karşı imza `RevocationFreshness` kuralı WARN'dur: uzun dönemli imzadaki iptal verisi imzadan önce yayımlanmış olabilir (MA3 de verinin kontrol zamanını kapsamasına bakar); geçerlilik penceresi `MDSS-TR-CRL-EXPIRED` / `MDSS-TR-OCSP-EXPIRED` ile denetlenir. TÜBİTAK uyum değerlendirmesi bu profille, özel XML yüklemeden yapılabilir.
 - **`strict`**: eIDAS QES paralelinde tüm zincir için sıkı davranış — ara CA REVOKED ise imza geçersiz. **Operasyonel kesinti tolere edilmez**; OCSP/CRL altyapısı garanti edilmiş kurumsal ortamlar için. `chainRevocationStatus: LEAF_GOOD_CA_REVOKED` durumunda `valid: false` + sub-indication `REVOKED_CA_NO_POE` döner.
 - **Custom XML**: Yukarıdaki iki profil ihtiyacı karşılamazsa `DSS_POLICY_PATH` ile kendi XML'inizi mount edin. Built-in profiller `src/main/resources/policy/` altında tam yorumlu, baz alabilirsiniz.
 
@@ -538,6 +538,14 @@ TR_COMPLIANCE_CHECKS_ENABLED=true    # Feature flag, varsayılan AÇIK; false ka
 ```
 
 TÜBİTAK e-Fatura ön hazırlık değerlendirmesindeki MA3 politikasının DSS politika şemasıyla ifade edilemeyen kurallarını DSS doğrulamasından sonra uygular: özgün belgeyle (`originalDocument`) doğrulanamayan ayrık XAdES imza, bozuk sertifika imzası, imza zamanında süresi dolmuş / henüz geçerli olmayan sertifika, `nextUpdate`'i imza zaman damgasından önce dolmuş SİL, NES (UserNotice, ETSI ve BTK QC ibareleri) ve mali mühür (EKU ve politika OID'si) kuralları. NES `nonRepudiation` kuralı bu bayraktan bağımsız, varsayılan açık `MDSS-TR-KEYUSAGE-PROFILE` kontrolündedir. Bulgular `appliedRejections[]` altında `MDSS-TR-*` koduyla raporlanır ve imzanın kök nedeni olur; DSS'in asıl kararı `originalIndication` alanındadır. Açıkken DSS'in geçirdiği imzalar da reddedilebilir. Kod listesi: [docs/rejections](docs/rejections/README.md).
+
+Her imza seviyesinde ayrıca zaman damgası (bozuk imza / mesaj özeti, damga anında geçersiz TSA sertifikası, güvenilir köke bağlanamayan TSA zinciri) ve bozuk imzalı güven kökü kuralları uygulanır.
+
+```bash
+TR_STRICT_REFERENCE_ENABLED=true     # Sıkı referans kullanımı, varsayılan AÇIK; yalnız TR uyum açıkken etkili.
+```
+
+MA3 `force-strict-reference-use=true` eşdeğeri (TÜBİTAK ön hazırlık kılavuzu zorunlu tutar). Uzun dönemli imzada (-C / -X / -XL / -A) zincirdeki her CA sertifikası (kök dahil) `CompleteCertificateRefs` içinde eşleşen özetle ve `CertificateValues` içinde bulunmalı; `RevocationValues` ile `CompleteRevocationRefs` birbiriyle eşleşmeli; imzacı zincirinin iptal durumu yalnız imzanın `RevocationValues` alanındaki veriyle, zaman damgası zincirininki bu veri ve zaman damgasının kendi içindeki veriyle değerlendirilir. DSS'in çevrimiçi veya zaman damgası içinden bulduğu başka veri; bozuk, süresi dolmuş veya eksik referans verisini ikame etmez (`MDSS-TR-CERT-REF-*`, `MDSS-TR-CERT-VALUE-MISSING`, `MDSS-TR-REVOCATION-*`, `MDSS-TR-OCSP-*`, `MDSS-TR-CERT-REVOKED`). Eksik referans / iptal verisinde `VALIDATION_EVIDENCE_INCOMPLETE` ("Eksik bilginin tamamlanması gerekmektedir") önerisi eklenir.
 
 > Takas: fast-fail açıkken responder toparlandıktan sonra aynı sertifika için negatif cache TTL'i kadar (geçici 30 s / kalıcı 300 s) "revocation verisi yok" dönebilir.
 

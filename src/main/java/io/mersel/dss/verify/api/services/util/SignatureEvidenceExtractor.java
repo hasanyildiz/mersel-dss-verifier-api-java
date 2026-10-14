@@ -2,6 +2,9 @@ package io.mersel.dss.verify.api.services.util;
 
 import eu.europa.esig.dss.diagnostic.CertificateWrapper;
 import eu.europa.esig.dss.diagnostic.SignatureWrapper;
+import eu.europa.esig.dss.diagnostic.TimestampWrapper;
+import eu.europa.esig.dss.enumerations.DigestAlgorithm;
+import eu.europa.esig.dss.enumerations.TimestampType;
 import eu.europa.esig.dss.detailedreport.DetailedReport;
 import eu.europa.esig.dss.jaxb.object.Message;
 import eu.europa.esig.dss.diagnostic.jaxb.XmlDigestMatcher;
@@ -10,12 +13,23 @@ import io.mersel.dss.verify.api.models.SignedReferenceInfo;
 import io.mersel.dss.verify.api.models.TimestampInfo;
 import io.mersel.dss.verify.api.models.VerificationRecommendation;
 import io.mersel.dss.verify.api.models.enums.ChainRevocationStatus;
+import io.mersel.dss.verify.api.services.compliance.TrComplianceFinding;
+import io.mersel.dss.verify.api.services.compliance.ValidationDataChecker;
+import io.mersel.dss.verify.api.models.enums.RejectionCode;
 
+import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Base64;
+import java.util.Collections;
+import java.util.Date;
+import java.util.EnumSet;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
+import java.util.TimeZone;
 
 /** Copies DSS report evidence without inferring relationships from XML nesting or changing validation decisions. */
 public final class SignatureEvidenceExtractor {
@@ -69,8 +83,39 @@ public final class SignatureEvidenceExtractor {
         }
     }
 
+    /** BTK Tebliği (RG 24.03.2020) özetleme algoritmaları: SHA2-256/384/512, SHA3-256/384/512. */
+    static final Set<DigestAlgorithm> ALLOWED_DIGEST_ALGORITHMS = Collections.unmodifiableSet(EnumSet.of(
+            DigestAlgorithm.SHA256, DigestAlgorithm.SHA384, DigestAlgorithm.SHA512,
+            DigestAlgorithm.SHA3_256, DigestAlgorithm.SHA3_384, DigestAlgorithm.SHA3_512));
+
+    static final String ARCHIVE_REQUIRED_DIGEST_POLICY = "ARCHIVE_REQUIRED_DIGEST_POLICY";
+    static final String ARCHIVE_REQUIRED_REVOCATION_EVIDENCE = "ARCHIVE_REQUIRED_REVOCATION_EVIDENCE";
+    static final String VALIDATION_EVIDENCE_INCOMPLETE = "VALIDATION_EVIDENCE_INCOMPLETE";
+
+    /** Eksik doğrulama verisini bildiren ret kodları: "eksik bilginin tamamlanması" önerisi eşlik eder. */
+    private static final Set<RejectionCode> MISSING_EVIDENCE_CODES = Collections.unmodifiableSet(EnumSet.of(
+            RejectionCode.MDSS_TR_CERT_REF_MISSING, RejectionCode.MDSS_TR_CERT_VALUE_MISSING,
+            RejectionCode.MDSS_TR_REVOCATION_REF_MISSING, RejectionCode.MDSS_TR_REVOCATION_DATA_MISSING));
+
     /** Maps explicit DSS policy warning keys to the legacy preservation guidance. */
     public static void enrichPolicyRecommendations(SignatureInfo info, DetailedReport report) {
+        enrichPolicyRecommendations(info, report, null);
+    }
+
+    /**
+     * Arşiv önerileri (rehber §2.1) yalnız geçerli ve arşivlenmemiş (arşiv zaman damgası
+     * olmayan) imzada verilir:
+     * <ul>
+     *   <li>{@code ARCHIVE_REQUIRED_DIGEST_POLICY} — imza BTK listesi dışında bir özet
+     *       algoritması kullanıyor (ör. SHA-1) veya DSS politikası özet uyarısı verdi.</li>
+     *   <li>{@code ARCHIVE_REQUIRED_REVOCATION_EVIDENCE} — doğrulamada kullanılan, imzacı
+     *       dışındaki bir sertifika (alt kök, OCSP, zaman damgası) kontrol zamanından sonra
+     *       iptal edilmiş. İmzacı sertifikasının sonradan iptali arşiv gerekçesi değildir.</li>
+     * </ul>
+     * DSS'in iptal verisi tazelik uyarıları (ör. politika WARN) arşiv gerekçesi değildir.
+     */
+    public static void enrichPolicyRecommendations(SignatureInfo info, DetailedReport report,
+                                                   SignatureWrapper wrapper) {
         if (report == null || info.getSignatureId() == null) return;
         List<VerificationRecommendation> recommendations = info.getRecommendations();
         if (recommendations == null) {
@@ -87,26 +132,124 @@ public final class SignatureEvidenceExtractor {
                 }
             }
         }
-        if (info.isValid() && hasKey(warnings, "ASCCM_DAA_ANS", "ASCCM_DAA_ANS_2")) {
-            recommendations.add(recommendation("ARCHIVE_REQUIRED_DIGEST_POLICY", "Geçersiz özet algoritması: imza en kısa sürede arşivlenmelidir",
-                    "DSS, etkin politikanın özet algoritması kısıtını uyarı olarak bildirdi. Doğrulama sonucu korunmuştur; uygun algoritmayla arşiv koruması planlayın.", "WARNING"));
+        boolean archived = wrapper != null && wrapper.getArchiveTimestamps() != null
+                && !wrapper.getArchiveTimestamps().isEmpty();
+        if (info.isValid() && !archived) {
+            List<String> weakDigests = disallowedDigestAlgorithms(wrapper);
+            if (!weakDigests.isEmpty() || hasKey(warnings, "ASCCM_DAA_ANS", "ASCCM_DAA_ANS_2")) {
+                recommendations.add(recommendation(ARCHIVE_REQUIRED_DIGEST_POLICY,
+                        "Geçersiz Özet Algoritması, İmza En Kısa Sürede Arşivlenmelidir",
+                        (weakDigests.isEmpty()
+                                ? "DSS, etkin politikanın özet algoritması kısıtını uyarı olarak bildirdi."
+                                : "İmza, BTK'nın izin verdiği özet algoritmaları (SHA-256/384/512, SHA3-256/384/512) "
+                                        + "dışında " + String.join(", ", weakDigests) + " kullanıyor.")
+                                + " İmza geçerlidir; özet algoritması uyarısı sonucu değiştirmez. İmza en kısa "
+                                + "sürede arşivlenmelidir.", "WARNING"));
+            }
+            List<ValidationDataChecker.LaterRevocation> later = wrapper != null
+                    ? ValidationDataChecker.laterRevocations(wrapper, signerControlTime(wrapper))
+                    : Collections.<ValidationDataChecker.LaterRevocation>emptyList();
+            if (!later.isEmpty()) {
+                List<String> items = new ArrayList<>();
+                for (ValidationDataChecker.LaterRevocation revocation : later) {
+                    items.add(revocation.getRole() + " '" + revocation.getSubject() + "' ("
+                            + display(revocation.getRevocationDate()) + ")");
+                }
+                recommendations.add(recommendation(ARCHIVE_REQUIRED_REVOCATION_EVIDENCE, "Dosya arşivlenmelidir",
+                        "Doğrulamada kullanılan sertifika, imza zamanından sonra iptal edilmiş: "
+                                + String.join("; ", items) + ". İmza geçerlidir; ancak bu kanıt zamanla "
+                                + "doğrulanamaz hale gelir. İmza arşivlenmelidir (arşiv zaman damgası).",
+                        "WARNING"));
+            }
         }
-        if (info.isValid() && hasKey(warnings, "BBB_XCV_IRDPFC_ANS", "BBB_XCV_IARDPFC_ANS",
-                "BBB_RFC_IRIF_ANS", "BBB_XCV_IRDC_ANS", "ADEST_RORPIIC_ANS",
-                "BBB_XCV_ICTIVRCIRI_ANS", "BBB_XCV_IRDPFRC_ANS")) {
-            recommendations.add(recommendation("ARCHIVE_REQUIRED_REVOCATION_EVIDENCE", "Dosya arşivlenmelidir",
-                    "DSS, sertifika veya zaman damgası iptal kanıtı için sorun bildirdi. Doğrulama sonucu korunmuştur; gerekli OCSP/SİL verilerini tamamlayıp arşiv koruması sağlayın.", "WARNING"));
-        }
-        if (!info.isValid()) {
+        if (!info.isValid() && !hasRecommendation(info, VALIDATION_EVIDENCE_INCOMPLETE)) {
             List<Message> errors = report.getAdESValidationErrors(info.getSignatureId());
             if (hasKey(errors, "BBB_XCV_IRDPFC_ANS", "BBB_XCV_IARDPFC_ANS", "BBB_XCV_IRDPFRC_ANS")
                     || "NO_SIGNING_CERTIFICATE_FOUND".equals(info.getSubIndication())
                     || "NO_CERTIFICATE_CHAIN_FOUND".equals(info.getSubIndication())
                     || "SIGNED_DATA_NOT_FOUND".equals(info.getSubIndication())) {
-                recommendations.add(recommendation("VALIDATION_EVIDENCE_INCOMPLETE", "Eksik bilginin tamamlanması gerekmektedir",
-                        "DSS gerekli sertifika, iptal kanıtı veya imzalı içeriğe ulaşamadı. Eksik veriyi tamamlayıp yeniden doğrulayın; bu öneri sonucu geçerli yapmaz.", "WARNING"));
+                recommendations.add(missingEvidenceRecommendation(
+                        "DSS gerekli sertifika, iptal kanıtı veya imzalı içeriğe ulaşamadı."));
             }
         }
+    }
+
+    /**
+     * TR uyum kuralı imzayı reddettiğinde önerileri karara uydurur: geçersiz imza için arşiv
+     * önerileri kaldırılır (arşivleme geçersiz imzayı düzeltmez); eksik referans veya iptal
+     * verisi bulgusuna "Eksik bilginin tamamlanması gerekmektedir" önerisi eşlik eder.
+     */
+    public static void applyRejectionRecommendations(SignatureInfo info, List<TrComplianceFinding> findings) {
+        List<VerificationRecommendation> recommendations = info.getRecommendations() != null
+                ? new ArrayList<>(info.getRecommendations()) : new ArrayList<VerificationRecommendation>();
+        if (!info.isValid()) {
+            recommendations.removeIf(r -> ARCHIVE_REQUIRED_DIGEST_POLICY.equals(r.getCode())
+                    || ARCHIVE_REQUIRED_REVOCATION_EVIDENCE.equals(r.getCode()));
+        }
+        List<String> missing = new ArrayList<>();
+        for (TrComplianceFinding finding : findings) {
+            if (MISSING_EVIDENCE_CODES.contains(finding.getCode())) {
+                missing.add(finding.getReason().replace(" Eksik bilginin tamamlanması gerekmektedir.", ""));
+            }
+        }
+        if (!missing.isEmpty()) {
+            recommendations.removeIf(r -> VALIDATION_EVIDENCE_INCOMPLETE.equals(r.getCode()));
+            recommendations.add(0, missingEvidenceRecommendation(String.join(" ", missing)));
+        }
+        info.setRecommendations(recommendations);
+    }
+
+    private static VerificationRecommendation missingEvidenceRecommendation(String detail) {
+        return recommendation(VALIDATION_EVIDENCE_INCOMPLETE, "Eksik bilginin tamamlanması gerekmektedir",
+                detail + " Eksik veriyi tamamlayıp yeniden doğrulayın; bu öneri sonucu geçerli yapmaz.", "WARNING");
+    }
+
+    /** İmzanın ve imzalı referanslarının BTK listesi dışındaki özet algoritmaları (ör. SHA1). */
+    static List<String> disallowedDigestAlgorithms(SignatureWrapper wrapper) {
+        Set<String> names = new LinkedHashSet<>();
+        if (wrapper == null) return new ArrayList<>(names);
+        if (wrapper.getDigestAlgorithm() != null && !ALLOWED_DIGEST_ALGORITHMS.contains(wrapper.getDigestAlgorithm())) {
+            names.add(wrapper.getDigestAlgorithm().getName());
+        }
+        if (wrapper.getDigestMatchers() != null) {
+            for (XmlDigestMatcher matcher : wrapper.getDigestMatchers()) {
+                if (matcher != null && matcher.getDigestMethod() != null
+                        && !ALLOWED_DIGEST_ALGORITHMS.contains(matcher.getDigestMethod())) {
+                    names.add(matcher.getDigestMethod().getName());
+                }
+            }
+        }
+        return new ArrayList<>(names);
+    }
+
+    /** İmzacı zincirinin kontrol zamanı: en erken sağlam imza zaman damgası, yoksa doğrulama zamanı. */
+    private static Date signerControlTime(SignatureWrapper wrapper) {
+        Date earliest = null;
+        if (wrapper.getTimestampList() != null) {
+            for (TimestampWrapper timestamp : wrapper.getTimestampList()) {
+                if (timestamp.getType() == TimestampType.SIGNATURE_TIMESTAMP && timestamp.isSignatureIntact()
+                        && timestamp.isMessageImprintDataIntact() && timestamp.getProductionTime() != null
+                        && (earliest == null || timestamp.getProductionTime().before(earliest))) {
+                    earliest = timestamp.getProductionTime();
+                }
+            }
+        }
+        return earliest != null ? earliest : new Date();
+    }
+
+    private static String display(Date date) {
+        if (date == null) return "tarih bilinmiyor";
+        SimpleDateFormat format = new SimpleDateFormat("dd.MM.yyyy HH:mm:ss", new Locale("tr", "TR"));
+        format.setTimeZone(TimeZone.getTimeZone("Europe/Istanbul"));
+        return format.format(date);
+    }
+
+    private static boolean hasRecommendation(SignatureInfo info, String code) {
+        if (info.getRecommendations() == null) return false;
+        for (VerificationRecommendation recommendation : info.getRecommendations()) {
+            if (code.equals(recommendation.getCode())) return true;
+        }
+        return false;
     }
 
     private static void addMessages(List<Message> target, List<Message> messages) {
@@ -124,10 +267,6 @@ public final class SignatureEvidenceExtractor {
 
     private static List<VerificationRecommendation> recommendations(SignatureInfo info, SignatureWrapper wrapper) {
         List<VerificationRecommendation> result = new ArrayList<>();
-        if (wrapper.getArchiveTimestamps() == null || wrapper.getArchiveTimestamps().isEmpty()) {
-            result.add(recommendation("ARCHIVE_TIMESTAMP_MISSING", "Arşiv zaman damgası bulunamadı",
-                    "DSS raporunda arşiv zaman damgası yok. Uzun süreli saklama için doğrulama verilerini koruyun ve arşivleme politikanıza göre damgalama planlayın.", "INFO"));
-        }
         if (!wrapper.isTrustedChain()) {
             result.add(recommendation("TRUST_CHAIN_INCOMPLETE", "Güven zincirini inceleyin",
                     "DSS, güvenilir köke ulaşan bir sertifika zinciri bildirmedi. Ara sertifikaları ve etkin güven deposunu kontrol edin.", "WARNING"));

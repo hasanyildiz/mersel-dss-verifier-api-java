@@ -340,6 +340,20 @@ public class VerificationConfiguration {
     private boolean trComplianceEnabled;
 
     /**
+     * Sıkı referans kullanımı (MA3 {@code force-strict-reference-use=true}); yalnız
+     * {@link #trComplianceEnabled} açıkken etkilidir. Uzun dönemli imzada (-C / -X / -XL / -A)
+     * zincirdeki her CA sertifikası {@code CompleteCertificateRefs} içinde bulunmalı; imzacı
+     * ve zaman damgası zincirinin iptal durumu yalnız imzanın {@code RevocationValues}
+     * alanındaki veriyle değerlendirilir. DSS'in çevrimiçi veya zaman damgası içinden
+     * bulduğu başka veri, bozuk / süresi dolmuş / eksik referans verisini ikame etmez.
+     *
+     * <p>Default <b>açık</b> (TÜBİTAK ön hazırlık kılavuzu bu ayarı zorunlu tutar).
+     * Kapatmak için {@code TR_STRICT_REFERENCE_ENABLED=false}.</p>
+     */
+    @Value("${verification.tr-compliance.strict-reference-enabled:true}")
+    private boolean trStrictReferenceEnabled;
+
+    /**
      * İmzacı sertifikası profil (mali mühür / e-imza) KeyUsage denetimi.
      *
      * <p>Sertifika profili OID kanıtlarından tespit edilir
@@ -625,6 +639,14 @@ public class VerificationConfiguration {
 
     public void setTrComplianceEnabled(boolean trComplianceEnabled) {
         this.trComplianceEnabled = trComplianceEnabled;
+    }
+
+    public boolean isTrStrictReferenceEnabled() {
+        return trStrictReferenceEnabled;
+    }
+
+    public void setTrStrictReferenceEnabled(boolean trStrictReferenceEnabled) {
+        this.trStrictReferenceEnabled = trStrictReferenceEnabled;
     }
 
     public boolean isSignerKeyUsageProfileEnabled() {

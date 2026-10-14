@@ -126,16 +126,19 @@
 				<AcceptableRevocationDataFound Level="FAIL" />
 				<CRLNextUpdatePresent Level="WARN" />
 				<!--
-				    İMZACI revocation FRESHNESS — KamuSM OCSP real-time
-				    (saniyeler içinde güncel), CRL 7 günlük periyot. 24
-				    saatten eski revocation verisi "stale" sayılır: iptal
-				    edilmiş bir sertifika için sessizce kabul anlamına gelir.
-				    eIDAS-QES paralel davranışı: FAIL 24h. Operasyon
-				    pencereleri (örn. CRL bakım kesintisi) için bu kontrol
-				    nadiren ihlal olur; ihlal olduğunda da "manuel inceleme
-				    gerekir" demek "iptal kaçırdı" demekten iyidir.
+				    İMZACI revocation FRESHNESS — WARN. DSS bu kuralda iptal
+				    verisinin doğrulama anına göre son 24 saatte yayımlanmış
+				    olmasını ister; MA3 ise verinin kontrol zamanını (imza zaman
+				    damgası) kapsamasına bakar. Uzun dönemli imzadaki SİL'ler
+				    imzadan önce yayımlanmış ve hâlâ geçerli olabilir (TÜBİTAK
+				    paketinde 2019 tarihli SİL, 2023 tarihli imza): FAIL her
+				    -XL / -A imzayı TRY_LATER ile reddeder. Geçerlilik penceresi
+				    DSS sonrası TR uyum kurallarıyla denetlenir:
+				    MDSS-TR-CRL-EXPIRED (nextUpdate kontrol zamanından önce),
+				    MDSS-TR-OCSP-EXPIRED (nextUpdate'siz OCSP kontrol zamanından
+				    24 saatten eski). Bkz. docs/rejections.
 				-->
-				<RevocationFreshness Level="FAIL" Unit="HOURS" Value="24" />
+				<RevocationFreshness Level="WARN" Unit="HOURS" Value="24" />
 				<!--
 				    KeyUsage — İMZACI sertifikası dijital imza üretimine yetkili
 				    olmalı. Burada YALNIZ digitalSignature listelenir; profil
@@ -276,8 +279,9 @@
 				<RevocationDataAvailable Level="FAIL" />
 				<AcceptableRevocationDataFound Level="FAIL" />
 				<CRLNextUpdatePresent Level="WARN" />
-				<!-- Sayaç imzanın iptal kontrolü ana imzayla aynı sıkılıkta, FAIL 24h -->
-				<RevocationFreshness Level="FAIL" Unit="HOURS" Value="24" />
+				<!-- Sayaç imzanın iptal tazeliği ana imzayla aynı: WARN; geçerlilik
+				     penceresi TR uyum kurallarıyla denetlenir (bkz. imzacı kuralı) -->
+				<RevocationFreshness Level="WARN" Unit="HOURS" Value="24" />
 				<!--
 				    KeyUsage — SAYAÇ İMZASI (karşı imza) sertifikası ana
 				    imzacıyla aynı kurala tabidir: yalnız digitalSignature

@@ -3,7 +3,6 @@ package io.mersel.dss.verify.api.services.compliance;
 import eu.europa.esig.dss.diagnostic.jaxb.XmlDigestMatcher;
 import eu.europa.esig.dss.enumerations.DigestMatcherType;
 import eu.europa.esig.dss.enumerations.Indication;
-import eu.europa.esig.dss.enumerations.RevocationType;
 import eu.europa.esig.dss.enumerations.SubIndication;
 import io.mersel.dss.verify.api.models.enums.RejectionCode;
 import org.bouncycastle.asn1.ASN1EncodableVector;
@@ -44,7 +43,7 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * MA3 e-Fatura değerlendirme kuralları — ESXL1_MM_7..13, 17 ve mali mühür MM_37..39
+ * MA3 e-Fatura değerlendirme kuralları — ESXL1_MM_7..13 ve mali mühür MM_37..39
  * örneklerindeki sertifika yapıları yerel üretilen sertifikalarla.
  */
 class TrComplianceCheckerTest {
@@ -250,37 +249,6 @@ class TrComplianceCheckerTest {
                 TrComplianceChecker.checkValidityAtSigningTime(notBefore, notAfter, new Date(50 * DAY), "x").getCode());
     }
 
-    // ------------------------------------------------------------- SİL geçerliliği
-
-    @Test
-    void onlyExpiredCrls_areRejected_likeMm17() {
-        Date control = new Date(1000 * DAY);
-        TrComplianceFinding finding = TrComplianceChecker.checkCrlValidity(true, "CN=QC A1 17",
-                Arrays.asList(crl(10 * DAY, 40 * DAY), crl(20 * DAY, 60 * DAY)),
-                control, TrComplianceChecker.TIME_SOURCE_SIGNATURE_TIMESTAMP);
-
-        assertNotNull(finding);
-        assertEquals(RejectionCode.MDSS_TR_CRL_EXPIRED, finding.getCode());
-        assertEquals(Indication.INDETERMINATE, finding.getIndication());
-        assertEquals(SubIndication.TRY_LATER, finding.getSubIndication());
-        assertEquals("1970-03-02T00:00:00Z", finding.getEvidence().get("crlNextUpdate"),
-                "En son yayımlanan (en geç nextUpdate) SİL raporlanır");
-    }
-
-    @Test
-    void coveringCrl_orOcsp_orNoRevocationData_leavesTheDecisionToDss() {
-        Date control = new Date(1000 * DAY);
-        assertNull(TrComplianceChecker.checkCrlValidity(true, "s",
-                Arrays.asList(crl(10 * DAY, 40 * DAY), crl(900 * DAY, 2000 * DAY)), control, "x"),
-                "MM_1: SİL nextUpdate kontrol zamanından sonra");
-        assertNull(TrComplianceChecker.checkCrlValidity(true, "s",
-                Arrays.asList(crl(10 * DAY, 40 * DAY),
-                        new TrComplianceChecker.RevocationEvidence(RevocationType.OCSP, new Date(990 * DAY), null, "EXTERNAL")),
-                control, "x"));
-        assertNull(TrComplianceChecker.checkCrlValidity(true, "s",
-                new ArrayList<TrComplianceChecker.RevocationEvidence>(), control, "x"));
-    }
-
     // ------------------------------------------------------------------ yardımcılar
 
     private static void assertCodes(List<TrComplianceFinding> findings, RejectionCode... expected) {
@@ -289,11 +257,6 @@ class TrComplianceCheckerTest {
             codes.add(finding.getCode());
         }
         assertEquals(Arrays.asList(expected), codes);
-    }
-
-    private static TrComplianceChecker.RevocationEvidence crl(long thisUpdate, long nextUpdate) {
-        return new TrComplianceChecker.RevocationEvidence(RevocationType.CRL,
-                new Date(thisUpdate), new Date(nextUpdate), "REVOCATION_VALUES");
     }
 
     private static X509Certificate ca(KeyPair keys) throws Exception {

@@ -1,12 +1,10 @@
 package io.mersel.dss.verify.api.services.compliance;
 
-import eu.europa.esig.dss.diagnostic.CertificateRevocationWrapper;
 import eu.europa.esig.dss.diagnostic.CertificateWrapper;
 import eu.europa.esig.dss.diagnostic.SignatureWrapper;
 import eu.europa.esig.dss.diagnostic.TimestampWrapper;
 import eu.europa.esig.dss.diagnostic.jaxb.XmlDigestMatcher;
 import eu.europa.esig.dss.enumerations.Indication;
-import eu.europa.esig.dss.enumerations.RevocationType;
 import eu.europa.esig.dss.enumerations.SubIndication;
 import eu.europa.esig.dss.enumerations.TimestampType;
 import eu.europa.esig.dss.model.x509.CertificateToken;
@@ -38,6 +36,7 @@ import java.security.cert.X509Certificate;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.Collections;
 import java.util.Date;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
@@ -64,9 +63,11 @@ import java.util.function.Function;
  *   <li><b>İmza zamanında sertifika geçerliliği</b> — en erken imza zaman damgası
  *       (yoksa beyan edilen imza zamanı) sertifikanın geçerlilik aralığı dışındaysa.
  *       DSS iptal verisi seçiminde durduğunda süre kontrolüne hiç ulaşmaz.</li>
- *   <li><b>SİL geçerlilik süresi</b> — MA3 {@code CRLDateChecker} eşdeğeri: zincirdeki
- *       bir sertifika için yalnız SİL varsa ve hiçbirinin nextUpdate'i kontrol zamanını
- *       (imza zaman damgası, yoksa doğrulama zamanı) kapsamıyorsa.</li>
+ *   <li><b>Doğrulama verisi</b> — {@link ValidationDataChecker}: zincirin ve zaman
+ *       damgalarının iptal durumu (SİL / OCSP süresi, imzası, OCSP sertifikası; MA3
+ *       {@code CRLDateChecker} dahil), bozuk imzalı güven kökü, bozuk zaman damgası ve
+ *       uzun dönemli imzada sıkı referans kullanımı (sertifika / iptal referansları ve
+ *       değerleri).</li>
  *   <li><b>NES / mali mühür sertifika profili</b> — MA3 {@code QualifiedCertificateChecker}
  *       (UserNotice, ETSI ve BTK QC OID'leri) ve mali mühür politikası
  *       (EKU 2.16.792.1.2.1.1.5.7.50.1, politika 2.16.792.1.2.1.1.5.7.4.1). NES
@@ -117,6 +118,27 @@ public class TrComplianceChecker {
                                               boolean originalDocumentProvided,
                                               Date validationTime,
                                               Function<X509Certificate, Collection<X509Certificate>> issuerLookup) {
+        return evaluate(signature, certificatePool, externalReferenceUris, originalDocumentProvided,
+                validationTime, issuerLookup, false, Collections.<byte[]>emptyList(),
+                Collections.<byte[]>emptyList());
+    }
+
+    /**
+     * @param strictReference sıkı referans kurallarını uygula ({@link ValidationDataChecker}):
+     *                        uzun dönemli imzada sertifika referansları ve iptal verisi yalnız
+     *                        imzanın referans verdiği veriyle değerlendirilir
+     * @param referencedCrls  imzanın RevocationValues alanındaki ham SİL'ler
+     * @param timestampCrls   zaman damgalarının içindeki ham SİL'ler
+     */
+    public List<TrComplianceFinding> evaluate(SignatureWrapper signature,
+                                              Collection<CertificateToken> certificatePool,
+                                              List<String> externalReferenceUris,
+                                              boolean originalDocumentProvided,
+                                              Date validationTime,
+                                              Function<X509Certificate, Collection<X509Certificate>> issuerLookup,
+                                              boolean strictReference,
+                                              Collection<byte[]> referencedCrls,
+                                              Collection<byte[]> timestampCrls) {
         List<TrComplianceFinding> findings = new ArrayList<>();
         if (signature == null) {
             return findings;
@@ -159,21 +181,8 @@ public class TrComplianceChecker {
 
         Date controlTime = poe != null ? poe.getProductionTime() : validationTime;
         String controlSource = poe != null ? TIME_SOURCE_SIGNATURE_TIMESTAMP : TIME_SOURCE_VALIDATION;
-        if (chain != null) {
-            for (int i = 0; i < chain.size(); i++) {
-                CertificateWrapper certificate = chain.get(i);
-                if (certificate.isTrusted() || certificate.isSelfSigned()) {
-                    continue;
-                }
-                TrComplianceFinding crl = checkCrlValidity(i == 0, subjectOf(certificate, poolById),
-                        revocationEvidence(certificate), controlTime, controlSource);
-                if (crl != null) {
-                    findings.add(crl);
-                    break;
-                }
-            }
-        }
-
+        findings.addAll(ValidationDataChecker.evaluate(signature, strictReference, referencedCrls, timestampCrls,
+                controlTime, controlSource));
         X509Certificate signer = x509(signingCertificate, poolById);
         if (signer != null) {
             findings.addAll(checkCertificateProfile(signer));
@@ -344,45 +353,6 @@ public class TrComplianceChecker {
                     Indication.TOTAL_FAILED, SubIndication.NOT_YET_VALID, evidence);
         }
         return null;
-    }
-
-    /**
-     * Sertifika için yalnız SİL varsa ve hiçbirinin geçerliliği kontrol zamanını kapsamıyorsa
-     * bulgu üretir. OCSP yanıtı veya kapsayan bir SİL varsa karar DSS'indir.
-     */
-    static TrComplianceFinding checkCrlValidity(boolean signer, String certificateSubject,
-                                                List<RevocationEvidence> revocations,
-                                                Date controlTime, String controlSource) {
-        if (revocations == null || revocations.isEmpty() || controlTime == null) {
-            return null;
-        }
-        RevocationEvidence latest = null;
-        for (RevocationEvidence revocation : revocations) {
-            if (!revocation.isCrl()) {
-                return null;
-            }
-            if (revocation.nextUpdate == null || !revocation.nextUpdate.before(controlTime)) {
-                return null;
-            }
-            if (latest == null || revocation.nextUpdate.after(latest.nextUpdate)) {
-                latest = revocation;
-            }
-        }
-        Map<String, Object> evidence = new LinkedHashMap<>();
-        evidence.put("certificateSubject", certificateSubject);
-        evidence.put("crlThisUpdate", iso(latest.thisUpdate));
-        evidence.put("crlNextUpdate", iso(latest.nextUpdate));
-        evidence.put("crlOrigin", latest.origin);
-        evidence.put("controlTime", iso(controlTime));
-        evidence.put("controlTimeSource", controlSource);
-        return new TrComplianceFinding(RejectionCode.MDSS_TR_CRL_EXPIRED,
-                (signer ? "İmzacı sertifikasının" : "'" + certificateSubject + "' ara sertifikasının")
-                        + " iptal kontrolünde kullanılan SİL'in geçerlilik süresi dolmuş: SİL "
-                        + display(latest.thisUpdate) + " tarihinde yayımlanmış, bir sonraki yayın "
-                        + "tarihi (nextUpdate) " + display(latest.nextUpdate) + "; kontrol zamanı "
-                        + display(controlTime) + " (" + controlSource + "). Süresi dolmuş SİL ile "
-                        + "sertifikanın iptal durumu doğrulanamaz.",
-                Indication.INDETERMINATE, SubIndication.TRY_LATER, evidence);
     }
 
     /**
@@ -561,20 +531,6 @@ public class TrComplianceChecker {
         return earliest;
     }
 
-    private static List<RevocationEvidence> revocationEvidence(CertificateWrapper certificate) {
-        List<RevocationEvidence> evidence = new ArrayList<>();
-        List<CertificateRevocationWrapper> revocations = certificate.getCertificateRevocationData();
-        if (revocations == null) {
-            return evidence;
-        }
-        for (CertificateRevocationWrapper revocation : revocations) {
-            evidence.add(new RevocationEvidence(revocation.getRevocationType(), revocation.getThisUpdate(),
-                    revocation.getNextUpdate(),
-                    revocation.getOrigin() != null ? revocation.getOrigin().name() : null));
-        }
-        return evidence;
-    }
-
     private static Map<String, X509Certificate> indexById(Collection<CertificateToken> tokens) {
         Map<String, X509Certificate> byId = new HashMap<>();
         if (tokens == null) {
@@ -601,11 +557,6 @@ public class TrComplianceChecker {
         return poolById.get(wrapper.getId());
     }
 
-    private static String subjectOf(CertificateWrapper wrapper, Map<String, X509Certificate> poolById) {
-        X509Certificate certificate = x509(wrapper, poolById);
-        return certificate != null ? certificate.getSubjectX500Principal().getName() : wrapper.getCommonName();
-    }
-
     // ---------------------------------------------------------------------------------
     // Yardımcılar
     // ---------------------------------------------------------------------------------
@@ -629,7 +580,7 @@ public class TrComplianceChecker {
         return format.format(date);
     }
 
-    private static String iso(Date date) {
+    static String iso(Date date) {
         if (date == null) {
             return null;
         }
@@ -647,25 +598,6 @@ public class TrComplianceChecker {
             return hex.toString();
         } catch (Exception e) {
             return "";
-        }
-    }
-
-    /** Bir sertifika için DSS'in topladığı iptal verisinin tarih özeti. */
-    static final class RevocationEvidence {
-        final RevocationType type;
-        final Date thisUpdate;
-        final Date nextUpdate;
-        final String origin;
-
-        RevocationEvidence(RevocationType type, Date thisUpdate, Date nextUpdate, String origin) {
-            this.type = type;
-            this.thisUpdate = thisUpdate;
-            this.nextUpdate = nextUpdate;
-            this.origin = origin;
-        }
-
-        boolean isCrl() {
-            return type == RevocationType.CRL;
         }
     }
 }

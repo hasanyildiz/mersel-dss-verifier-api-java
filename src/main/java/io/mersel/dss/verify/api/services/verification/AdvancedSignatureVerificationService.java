@@ -30,6 +30,9 @@ import eu.europa.esig.dss.spi.x509.aia.AIASource;
 import eu.europa.esig.dss.spi.x509.revocation.crl.CRLSource;
 import eu.europa.esig.dss.spi.x509.revocation.ocsp.OCSPSource;
 import eu.europa.esig.dss.spi.signature.AdvancedSignature;
+import eu.europa.esig.dss.spi.x509.tsp.TimestampToken;
+import eu.europa.esig.dss.model.identifier.EncapsulatedRevocationTokenIdentifier;
+import eu.europa.esig.dss.model.x509.revocation.crl.CRL;
 import eu.europa.esig.dss.spi.validation.CertificateVerifier;
 import eu.europa.esig.dss.spi.validation.CommonCertificateVerifier;
 import eu.europa.esig.dss.validation.SignedDocumentValidator;
@@ -1059,7 +1062,8 @@ public class AdvancedSignatureVerificationService {
             try {
                 List<TrComplianceFinding> findings = trComplianceChecker.evaluate(
                         wrapper, certificatePool, externalUris, originalDocumentProvided,
-                        validationTime, issuerLookup);
+                        validationTime, issuerLookup, config.isTrStrictReferenceEnabled(),
+                        referencedCrls(advanced), timestampCrls(advanced));
                 if (!findings.isEmpty()) {
                     applyTrFindings(sigInfo, findings);
                 }
@@ -1073,6 +1077,46 @@ public class AdvancedSignatureVerificationService {
         }
         result.setValid(allValid);
         result.setStatus(allValid ? "VALID" : "INVALID");
+    }
+
+    /** İmzanın RevocationValues (ve XAdES 1.4.1 eşdeğeri) alanlarındaki ham SİL'ler. */
+    private static List<byte[]> referencedCrls(AdvancedSignature signature) {
+        List<byte[]> crls = new ArrayList<>();
+        if (signature == null || signature.getCRLSource() == null) {
+            return crls;
+        }
+        try {
+            for (EncapsulatedRevocationTokenIdentifier<CRL> crl : signature.getCRLSource().getRevocationValuesBinaries()) {
+                crls.add(crl.getBinaries());
+            }
+            for (EncapsulatedRevocationTokenIdentifier<CRL> crl : signature.getCRLSource().getTimestampValidationDataBinaries()) {
+                crls.add(crl.getBinaries());
+            }
+        } catch (RuntimeException e) {
+            logger.debug("TR uyum: imzadaki SİL'ler okunamadı ({}): {}", signature.getId(), e.toString());
+        }
+        return crls;
+    }
+
+    /** Zaman damgalarının içindeki (CMS) ham SİL'ler: TSA zinciri bu veriyle de doğrulanabilir. */
+    private static List<byte[]> timestampCrls(AdvancedSignature signature) {
+        List<byte[]> crls = new ArrayList<>();
+        if (signature == null) {
+            return crls;
+        }
+        try {
+            for (TimestampToken timestamp : signature.getAllTimestamps()) {
+                if (timestamp.getCRLSource() == null) {
+                    continue;
+                }
+                for (EncapsulatedRevocationTokenIdentifier<CRL> crl : timestamp.getCRLSource().getCMSSignedDataRevocationBinaries()) {
+                    crls.add(crl.getBinaries());
+                }
+            }
+        } catch (RuntimeException e) {
+            logger.debug("TR uyum: zaman damgası SİL'leri okunamadı ({}): {}", signature.getId(), e.toString());
+        }
+        return crls;
     }
 
     static void applyTrFindings(SignatureInfo sigInfo, List<TrComplianceFinding> findings) {
@@ -1095,15 +1139,23 @@ public class AdvancedSignatureVerificationService {
             errors.addAll(sigInfo.getValidationErrors());
         }
         sigInfo.setValidationErrors(errors);
-        if (sigInfo.isValid()) {
+        // Geçen imzanın kararı bulguya göre değişir. Strict mode imzayı (ör. zaman damgası
+        // mesaj özeti) geçersiz saymış ama DSS kararı PASSED kalmışsa da aynı karar yazılır;
+        // aksi halde valid=false ile TOTAL_PASSED birlikte döner.
+        if (sigInfo.isValid() || isPassed(sigInfo.getIndication())) {
             TrComplianceFinding first = findings.get(0);
             sigInfo.setValid(false);
             sigInfo.setIndication(first.getIndication().name());
             sigInfo.setSubIndication(first.getSubIndication() != null ? first.getSubIndication().name() : null);
         }
+        SignatureEvidenceExtractor.applyRejectionRecommendations(sigInfo, findings);
         promoteToRootCause(sigInfo, constraints);
         logger.info("TR uyum kontrolü imzayı reddetti (signatureId={}, dssIndication={}, codes={})",
                 sigInfo.getSignatureId(), originalIndication, findings);
+    }
+
+    private static boolean isPassed(String indication) {
+        return Indication.TOTAL_PASSED.name().equals(indication) || Indication.PASSED.name().equals(indication);
     }
 
     /**
@@ -1386,7 +1438,7 @@ public class AdvancedSignatureVerificationService {
             }
         }
 
-        SignatureEvidenceExtractor.enrichPolicyRecommendations(sigInfo, detailedReport);
+        SignatureEvidenceExtractor.enrichPolicyRecommendations(sigInfo, detailedReport, signatureWrapper);
         return sigInfo;
     }
 

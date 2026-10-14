@@ -164,6 +164,135 @@ public enum RejectionCode {
             "ERROR",
             docs("MDSS-TR-CRL-EXPIRED")),
 
+    // Sıkı referans kullanımı (MA3 force-strict-reference-use). Uzun dönemli
+    // (-C / -X / -XL / -A) imzada doğrulama, imzanın referans verdiği veriyle
+    // (CompleteCertificateRefs, RevocationValues) yapılır; DSS'in çevrimiçi
+    // veya zaman damgası içinden bulduğu başka veri bu veriyi ikame etmez.
+    // Ayrıntı: docs/rejections/MDSS-TR-*.md
+
+    /** Zincirdeki bir CA sertifikası (kök / alt kök) CompleteCertificateRefs içinde yok. */
+    MDSS_TR_CERT_REF_MISSING(
+            "MDSS-TR-CERT-REF-MISSING",
+            "Sertifika referans bilgisi eksik",
+            "İmzanın sertifika referanslarında (CompleteCertificateRefs) zincirdeki "
+                    + "bir CA sertifikasının referans bilgisi yok. Eksik bilginin "
+                    + "tamamlanması gerekmektedir.",
+            "ERROR",
+            docs("MDSS-TR-CERT-REF-MISSING")),
+
+    /** CompleteCertificateRefs içindeki bir referans, zincirdeki sertifikayla eşleşmiyor. */
+    MDSS_TR_CERT_REF_INVALID(
+            "MDSS-TR-CERT-REF-INVALID",
+            "Sertifika referans bilgisi hatalı",
+            "İmzanın sertifika referanslarındaki (CompleteCertificateRefs) bir "
+                    + "referansın özeti, zincirdeki sertifikayla eşleşmiyor.",
+            "ERROR",
+            docs("MDSS-TR-CERT-REF-INVALID")),
+
+    /** Zincirdeki bir CA sertifikası (kök / alt kök) imzanın CertificateValues alanında yok. */
+    MDSS_TR_CERT_VALUE_MISSING(
+            "MDSS-TR-CERT-VALUE-MISSING",
+            "Sertifika değeri eksik",
+            "İmzanın sertifika değerlerinde (CertificateValues) zincirdeki bir CA "
+                    + "sertifikası yok; sıkı referans kullanımında güven deposu veya AIA ile "
+                    + "bulunan sertifika kullanılmaz. Eksik bilginin tamamlanması gerekmektedir.",
+            "ERROR",
+            docs("MDSS-TR-CERT-VALUE-MISSING")),
+
+    /** RevocationValues içindeki bir SİL / OCSP cevabının CompleteRevocationRefs içinde referansı yok. */
+    MDSS_TR_REVOCATION_REF_MISSING(
+            "MDSS-TR-REVOCATION-REF-MISSING",
+            "İptal referans bilgisi eksik",
+            "İmzanın iptal değerlerindeki (RevocationValues) bir SİL / OCSP cevabının iptal "
+                    + "referanslarında (CompleteRevocationRefs) referans bilgisi yok. Eksik bilginin "
+                    + "tamamlanması gerekmektedir.",
+            "ERROR",
+            docs("MDSS-TR-REVOCATION-REF-MISSING")),
+
+    /** RevocationValues ile CompleteRevocationRefs birbiriyle eşleşmiyor. */
+    MDSS_TR_REVOCATION_REF_INVALID(
+            "MDSS-TR-REVOCATION-REF-INVALID",
+            "İptal referans bilgisi hatalı",
+            "İmzanın iptal değerlerindeki (RevocationValues) bir SİL / OCSP cevabı, iptal "
+                    + "referanslarındaki (CompleteRevocationRefs) özetle eşleşmiyor.",
+            "ERROR",
+            docs("MDSS-TR-REVOCATION-REF-INVALID")),
+
+    /** Sertifikanın iptal bilgisi imzanın RevocationValues alanında yok. */
+    MDSS_TR_REVOCATION_DATA_MISSING(
+            "MDSS-TR-REVOCATION-DATA-MISSING",
+            "İptal bilgisi imzada yok",
+            "Sertifikanın iptal bilgisi (SİL / OCSP) imzanın RevocationValues "
+                    + "alanında yok; sıkı referans kullanımında çevrimiçi veya zaman "
+                    + "damgası içindeki veri kullanılmaz. Eksik bilginin tamamlanması "
+                    + "gerekmektedir.",
+            "ERROR",
+            docs("MDSS-TR-REVOCATION-DATA-MISSING")),
+
+    /** İmzadaki SİL veya OCSP cevabının imzası, düzenleyicisiyle doğrulanamıyor. */
+    MDSS_TR_REVOCATION_SIGNATURE_INVALID(
+            "MDSS-TR-REVOCATION-SIGNATURE-INVALID",
+            "İptal bilgisinin imzası bozuk",
+            "İmzadaki SİL veya OCSP cevabının imzası, onu düzenleyen sertifikayla "
+                    + "doğrulanamadı.",
+            "ERROR",
+            docs("MDSS-TR-REVOCATION-SIGNATURE-INVALID")),
+
+    /** İmzadaki OCSP cevabı kontrol zamanındaki iptal durumunu kanıtlamıyor. */
+    MDSS_TR_OCSP_EXPIRED(
+            "MDSS-TR-OCSP-EXPIRED",
+            "OCSP cevabının süresi dolmuş",
+            "İmzadaki OCSP cevabı kontrol zamanından önce üretilmiş veya geçerlilik "
+                    + "süresi (nextUpdate) dolmuş; kontrol zamanındaki iptal durumunu "
+                    + "kanıtlamıyor.",
+            "ERROR",
+            docs("MDSS-TR-OCSP-EXPIRED")),
+
+    /** OCSP cevabını imzalayan sertifika süresi dolmuş, imzası bozuk veya iptal edilmiş. */
+    MDSS_TR_OCSP_RESPONDER_INVALID(
+            "MDSS-TR-OCSP-RESPONDER-INVALID",
+            "OCSP sertifikası geçersiz",
+            "OCSP cevabını imzalayan sertifika, cevabın üretildiği anda geçerli değil "
+                    + "(süresi dolmuş, imzası bozuk veya iptal edilmiş).",
+            "ERROR",
+            docs("MDSS-TR-OCSP-RESPONDER-INVALID")),
+
+    /** Zincirdeki bir sertifika kontrol zamanından önce iptal edilmiş. */
+    MDSS_TR_CERT_REVOKED(
+            "MDSS-TR-CERT-REVOKED",
+            "Sertifika iptal edilmiş",
+            "Zincirdeki bir sertifika (alt kök, zaman damgası veya imzacı), imzadaki "
+                    + "iptal bilgisine göre kontrol zamanından önce iptal edilmiş.",
+            "ERROR",
+            docs("MDSS-TR-CERT-REVOKED")),
+
+    /** Güven kökü olarak eklenmiş kendinden imzalı sertifikanın imzası bozuk. */
+    MDSS_TR_TRUST_ANCHOR_SIGNATURE_INVALID(
+            "MDSS-TR-TRUST-ANCHOR-SIGNATURE-INVALID",
+            "Kök sertifikasının imzası bozuk",
+            "Zincirin bağlandığı kök sertifikası kendinden imzalı, ancak imzası kendi "
+                    + "açık anahtarıyla doğrulanamadı.",
+            "ERROR",
+            docs("MDSS-TR-TRUST-ANCHOR-SIGNATURE-INVALID")),
+
+    /** İmzanın bir zaman damgasının imzası veya mesaj özeti bozuk. */
+    MDSS_TR_TIMESTAMP_INVALID(
+            "MDSS-TR-TIMESTAMP-INVALID",
+            "Zaman damgası bozuk",
+            "İmzanın zaman damgalarından birinin imzası doğrulanamadı veya mesaj "
+                    + "özeti damgalanan veriyle eşleşmiyor.",
+            "ERROR",
+            docs("MDSS-TR-TIMESTAMP-INVALID")),
+
+    /** Zaman damgası sertifikası damga anında geçersiz veya güven köküne bağlanamıyor. */
+    MDSS_TR_TSA_CERT_INVALID(
+            "MDSS-TR-TSA-CERT-INVALID",
+            "Zaman damgası sertifikası geçersiz",
+            "Zaman damgası sertifikası damga anında geçerli değil, imzası bozuk veya "
+                    + "güvenilir köke bağlanamıyor.",
+            "ERROR",
+            docs("MDSS-TR-TSA-CERT-INVALID")),
+
 
     /** NES: sertifika politikalarında kullanıcı bildirimi (UserNotice) yok. */
     MDSS_TR_NES_CERTIFICATE_POLICY(
