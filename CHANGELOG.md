@@ -7,6 +7,8 @@ ve bu proje [Semantic Versioning 2.0.0](https://semver.org/spec/v2.0.0.html) kul
 
 ## [Unreleased]
 
+## [1.3.0] - 2026-10-14
+
 > **Canlı ortam notu:** Bu sürüm doğrulama kararlarını değiştirir. Sıkı referans
 > kuralları (`TR_STRICT_REFERENCE_ENABLED`, varsayılan **açık**, yalnız
 > `TR_COMPLIANCE_CHECKS_ENABLED` açıkken etkili) uzun dönemli imzada imzanın kendi
