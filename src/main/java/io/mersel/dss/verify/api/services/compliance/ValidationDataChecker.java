@@ -60,9 +60,10 @@ import java.util.Set;
  *       damgasının kendi içinde de olabilir. Referans verilen her iptal verisinin imzası
  *       sağlam, kontrol zamanını kapsıyor ve OCSP sertifikası cevabın üretildiği anda
  *       geçerli olmalı; sertifika kontrol zamanından önce iptal edilmemiş olmalı.</li>
- *   <li><b>Zaman damgası sertifika referansları</b> — imza ve içerik zaman damgalarının
- *       TSA zincirindeki CA sertifikaları da {@code CompleteCertificateRefs} içinde
- *       bulunmalı.</li>
+ *   <li><b>Zaman damgası sertifikaları</b> — imza, doğrulama verisi ve içerik zaman
+ *       damgalarının TSA zincirindeki CA sertifikaları (kök dahil) imzanın doğrulama
+ *       verisinde veya zaman damgasının kendi içinde bulunmalı; yalnız güven deposundaki
+ *       kök yetmez. TSA zinciri imzacı zincirinden farklı bir köke bağlanabilir.</li>
  *   <li><b>Zaman damgası</b> — her zaman damgasının imzası ve mesaj özeti sağlam,
  *       TSA sertifikası damga anında geçerli, imzası sağlam ve zinciri güvenilir köke
  *       bağlı olmalı (her imza seviyesinde).</li>
@@ -79,6 +80,11 @@ public final class ValidationDataChecker {
     static final Set<RevocationOrigin> REFERENCED_ORIGINS = Collections.unmodifiableSet(EnumSet.of(
             RevocationOrigin.REVOCATION_VALUES, RevocationOrigin.ATTRIBUTE_REVOCATION_VALUES,
             RevocationOrigin.TIMESTAMP_VALIDATION_DATA, RevocationOrigin.ANY_VALIDATION_DATA));
+
+    /** {@link #REFERENCED_ORIGINS} karşılığı: imzanın doğrulama verisi olarak taşıdığı sertifikalar. */
+    private static final Set<CertificateOrigin> VALIDATION_DATA_CERTIFICATE_ORIGINS = Collections.unmodifiableSet(
+            EnumSet.of(CertificateOrigin.CERTIFICATE_VALUES, CertificateOrigin.ATTR_AUTHORITIES_CERT_VALUES,
+                    CertificateOrigin.TIMESTAMP_VALIDATION_DATA, CertificateOrigin.ANY_VALIDATION_DATA));
 
     /**
      * {@code nextUpdate} taşımayan OCSP cevabı kontrol zamanından en fazla bu kadar önce
@@ -830,16 +836,23 @@ public final class ValidationDataChecker {
 
     /**
      * TSA zincirindeki CA sertifikaları (kök dahil) imzanın doğrulama verisinde
-     * (CompleteCertificateRefs veya CertificateValues) bulunmalı; zaman damgasının yalnız
-     * kendi içinde taşıdığı veya güven deposundaki sertifika referans sayılmaz.
+     * (CompleteCertificateRefs, CertificateValues, TimeStampValidationData) veya zaman
+     * damgasının kendi içinde (CMS SignedData sertifikaları) bulunmalı; yalnız güven
+     * deposundaki sertifika referans sayılmaz. TSA iptal verisi kuralıyla aynı kaynaklar:
+     * CompleteCertificateRefs imzacı zincirini kapsar (ETSI TS 101 903 §7.4.1), TSA zinciri
+     * farklı bir köke bağlanıp doğrulama verisini damganın içinde taşıyabilir.
+     * ESXL1_MM_54 / _76: TS C1 → Root C, Root C damganın içinde, geçerli. ESXL1_MM_91: TS C1
+     * damgası Root C'yi taşımıyor ve Root C imzada da yok, geçersiz.
      */
     static TrComplianceFinding checkTimestampCertificates(TimestampWrapper timestamp,
                                                           Set<String> validationDataCertificates) {
+        Set<String> available = new HashSet<>(validationDataCertificates);
+        available.addAll(timestampCertificateIds(timestamp));
         List<CertificateWrapper> chain = timestamp.getCertificateChain();
         String name = tsName(timestamp, timestamp.getSigningCertificate());
         for (int i = 1; chain != null && i < chain.size(); i++) {
             CertificateWrapper certificate = chain.get(i);
-            if (validationDataCertificates.contains(certificate.getId())) {
+            if (available.contains(certificate.getId())) {
                 continue;
             }
             boolean root = i == chain.size() - 1 && (certificate.isTrusted() || isSelfIssued(certificate));
@@ -849,20 +862,37 @@ public final class ValidationDataChecker {
             evidence.put("certificateId", certificate.getId());
             return new TrComplianceFinding(RejectionCode.MDSS_TR_CERT_REF_MISSING,
                     name + " " + (root ? "kök" : "alt kök") + " sertifikası ('" + subjectOf(certificate)
-                            + "') imzanın doğrulama verisinde (CompleteCertificateRefs / CertificateValues) yok; "
-                            + "zaman damgası sertifikası imzanın referans verdiği veriyle doğrulanamıyor. Eksik "
-                            + "bilginin tamamlanması gerekmektedir.",
+                            + "') ne imzanın doğrulama verisinde (CompleteCertificateRefs / CertificateValues) ne "
+                            + "de zaman damgasının içinde var; zaman damgası sertifikası imzanın taşıdığı veriyle "
+                            + "doğrulanamıyor. Eksik bilginin tamamlanması gerekmektedir.",
                     Indication.INDETERMINATE, SubIndication.CERTIFICATE_CHAIN_GENERAL_FAILURE, evidence);
         }
         return null;
     }
 
-    /** CompleteCertificateRefs (özeti eşleşen) veya CertificateValues içinde bulunan sertifikalar. */
+    /** Zaman damgasının kendi içinde (CMS SignedData) taşıdığı sertifikalar. */
+    private static Set<String> timestampCertificateIds(TimestampWrapper timestamp) {
+        Set<String> ids = new HashSet<>();
+        if (timestamp.foundCertificates() == null) {
+            return ids;
+        }
+        for (RelatedCertificateWrapper related : timestamp.foundCertificates()
+                .getRelatedCertificatesByOrigin(CertificateOrigin.SIGNED_DATA)) {
+            ids.add(related.getId());
+        }
+        return ids;
+    }
+
+    /**
+     * İmzanın doğrulama verisindeki sertifikalar: CompleteCertificateRefs (özeti eşleşen),
+     * CertificateValues ve zaman damgası doğrulama verisi alanları.
+     */
     private static Set<String> validationDataCertificateIds(SignatureWrapper signature) {
         Set<String> ids = new HashSet<>();
-        for (RelatedCertificateWrapper related : signature.foundCertificates()
-                .getRelatedCertificatesByOrigin(CertificateOrigin.CERTIFICATE_VALUES)) {
-            ids.add(related.getId());
+        for (CertificateOrigin origin : VALIDATION_DATA_CERTIFICATE_ORIGINS) {
+            for (RelatedCertificateWrapper related : signature.foundCertificates().getRelatedCertificatesByOrigin(origin)) {
+                ids.add(related.getId());
+            }
         }
         for (Map.Entry<String, List<RefMatch>> entry : refMatches(signature).entrySet()) {
             for (RefMatch match : entry.getValue()) {

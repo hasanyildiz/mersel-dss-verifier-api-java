@@ -7,6 +7,21 @@ ve bu proje [Semantic Versioning 2.0.0](https://semver.org/spec/v2.0.0.html) kul
 
 ## [Unreleased]
 
+### Fixed
+- Sıkı referans kuralı, zaman damgası (TSA) zincirinin CA sertifikasını yalnız imzanın
+  `CompleteCertificateRefs` / `CertificateValues` alanında arıyordu; zaman damgasının
+  kendi içinde taşıdığı sertifika sayılmıyordu. TSA zinciri imzacı zincirinden farklı
+  bir köke bağlandığında geçerli imza `MDSS-TR-CERT-REF-MISSING` ile reddediliyordu
+  (`ESXL1_MM_54`: imza zaman damgası, `ESXL1_MM_76`: SigAndRefs zaman damgası, ikisi de
+  TS C1 → Root C, Root C damganın içinde; `ESA_MM_54`, `_76`). TÜBİTAK bu dosyaları
+  geçerli kabul eder. `CompleteCertificateRefs` imzacı sertifikasının zincirini kapsar
+  (ETSI TS 101 903 §7.4.1); TSA zinciri için, iptal verisinde olduğu gibi, damganın
+  kendi verisi de kullanılır. Karşılaştırma sertifika kimliğiyle yapıldığı için imzada
+  aynı anahtarlı süresi dolmuş Root A sürümü taşıyan `ESA/ESXL1_MM_110` da reddediliyordu;
+  Root A damganın içinde olduğundan artık geçerli (1.3.0 öncesi sonuç). Kök ne imzada ne
+  damgada varsa ret sürer: `ESXL1_MM_91` / `ESA_MM_91` (TS C1 damgası Root C'yi
+  taşımıyor). Kontrol imzanın `TimeStampValidationData` sertifikalarını da kabul eder.
+
 ## [1.3.0] - 2026-10-14
 
 > **Canlı ortam notu:** Bu sürüm doğrulama kararlarını değiştirir. Sıkı referans

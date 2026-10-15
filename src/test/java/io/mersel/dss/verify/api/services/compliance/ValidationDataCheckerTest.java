@@ -1,8 +1,17 @@
 package io.mersel.dss.verify.api.services.compliance;
 
+import eu.europa.esig.dss.diagnostic.CertificateRefWrapper;
+import eu.europa.esig.dss.diagnostic.CertificateWrapper;
+import eu.europa.esig.dss.diagnostic.FoundCertificatesProxy;
+import eu.europa.esig.dss.diagnostic.RelatedCertificateWrapper;
+import eu.europa.esig.dss.diagnostic.SignatureWrapper;
+import eu.europa.esig.dss.diagnostic.TimestampWrapper;
+import eu.europa.esig.dss.enumerations.CertificateOrigin;
+import eu.europa.esig.dss.enumerations.CertificateRefOrigin;
 import eu.europa.esig.dss.enumerations.CertificateStatus;
 import eu.europa.esig.dss.enumerations.RevocationType;
 import eu.europa.esig.dss.enumerations.SubIndication;
+import eu.europa.esig.dss.enumerations.TimestampType;
 import io.mersel.dss.verify.api.models.enums.RejectionCode;
 import io.mersel.dss.verify.api.services.compliance.ValidationDataChecker.CertNode;
 import io.mersel.dss.verify.api.services.compliance.ValidationDataChecker.RefMatch;
@@ -23,6 +32,7 @@ import java.security.KeyPair;
 import java.security.KeyPairGenerator;
 import java.security.cert.X509CRL;
 import java.security.cert.X509Certificate;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.Date;
@@ -35,6 +45,8 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 /**
  * Sıkı referans kuralları — TÜBİTAK ES-XL örneklerindeki (ESXL1_MM_27..60) doğrulama verisi
@@ -356,6 +368,71 @@ class ValidationDataCheckerTest {
         assertFalse(ValidationDataChecker.ocspCovers(expired, T));
     }
 
+    // ------------------------------------------------------------ zaman damgası zinciri
+
+    @Test
+    void timestampRootCarriedInTokenPasses() { // ESXL1_MM_54 / _76: TS C1 → Root C, Root C damganın içinde
+        List<TrComplianceFinding> findings = evaluateWithTimestampRoot(true);
+        assertTrue(findings.isEmpty(), "TSA kökü damganın içindeyse imzanın referanslarında olmak zorunda değil: "
+                + codes(findings));
+    }
+
+    @Test
+    void timestampRootOnlyInTrustStoreIsRejected() { // ESXL1_MM_91: TS C1 damgası Root C'yi taşımıyor
+        List<TrComplianceFinding> findings = evaluateWithTimestampRoot(false);
+        assertEquals(1, findings.size(), codes(findings).toString());
+        assertEquals(RejectionCode.MDSS_TR_CERT_REF_MISSING, findings.get(0).getCode());
+        assertTrue(findings.get(0).getReason().contains("CN=Root C"));
+    }
+
+    /**
+     * Sıkı referanslı -XL imza: imzacı zinciri QC A1 1 → SubRoot A1 → Root A, CA'ları
+     * CompleteCertificateRefs ve CertificateValues içinde; imza zaman damgası TS C1 → Root C.
+     * Root C imzanın doğrulama verisinde yok; {@code rootInToken} damganın onu taşıyıp taşımadığı.
+     */
+    private static List<TrComplianceFinding> evaluateWithTimestampRoot(boolean rootInToken) {
+        RelatedCertificateWrapper subRoot = referenced("C-SUB", "CN=SubRoot A1", "CN=Root A", false);
+        RelatedCertificateWrapper rootA = referenced("C-ROOT-A", "CN=Root A", "CN=Root A", true);
+        RelatedCertificateWrapper tsa = certificate(mock(RelatedCertificateWrapper.class), "C-TS-C1", "CN=TS C1",
+                "CN=Root C", false);
+        RelatedCertificateWrapper rootC = certificate(mock(RelatedCertificateWrapper.class), "C-ROOT-C", "CN=Root C",
+                "CN=Root C", true);
+
+        FoundCertificatesProxy found = mock(FoundCertificatesProxy.class);
+        List<CertificateRefWrapper> refs = new ArrayList<>(subRoot.getReferences());
+        refs.addAll(rootA.getReferences());
+        when(found.getRelatedCertificateRefsByRefOrigin(CertificateRefOrigin.COMPLETE_CERTIFICATE_REFS)).thenReturn(refs);
+        when(found.getRelatedCertificatesByRefOrigin(CertificateRefOrigin.COMPLETE_CERTIFICATE_REFS))
+                .thenReturn(Arrays.asList(subRoot, rootA));
+        when(found.getRelatedCertificatesByOrigin(CertificateOrigin.CERTIFICATE_VALUES))
+                .thenReturn(Arrays.asList(subRoot, rootA));
+
+        FoundCertificatesProxy inToken = mock(FoundCertificatesProxy.class);
+        when(inToken.getRelatedCertificatesByOrigin(CertificateOrigin.SIGNED_DATA))
+                .thenReturn(rootInToken ? Arrays.asList(tsa, rootC) : Collections.singletonList(tsa));
+
+        TimestampWrapper timestamp = mock(TimestampWrapper.class);
+        when(timestamp.getId()).thenReturn("T-SIG");
+        when(timestamp.getType()).thenReturn(TimestampType.SIGNATURE_TIMESTAMP);
+        when(timestamp.getProductionTime()).thenReturn(T);
+        when(timestamp.getSigningCertificate()).thenReturn(tsa);
+        when(timestamp.getCertificateChain()).thenReturn(Arrays.<CertificateWrapper>asList(tsa, rootC));
+        when(timestamp.foundCertificates()).thenReturn(inToken);
+        when(timestamp.isSignatureIntact()).thenReturn(true);
+        when(timestamp.isMessageImprintDataFound()).thenReturn(true);
+        when(timestamp.isMessageImprintDataIntact()).thenReturn(true);
+        when(timestamp.isTrustedChain()).thenReturn(true);
+
+        SignatureWrapper signature = mock(SignatureWrapper.class);
+        CertificateWrapper signer = certificate(mock(CertificateWrapper.class), "C-QC", "CN=QC A1 1", "CN=SubRoot A1", false);
+        when(signature.getCertificateChain()).thenReturn(Arrays.<CertificateWrapper>asList(signer, subRoot, rootA));
+        when(signature.foundCertificates()).thenReturn(found);
+        when(signature.getTimestampList()).thenReturn(Collections.singletonList(timestamp));
+
+        return ValidationDataChecker.evaluate(signature, true, Collections.<byte[]>emptyList(),
+                Collections.<byte[]>emptyList(), T, "imza zaman damgası");
+    }
+
     // ------------------------------------------------------------ yardımcılar
 
     /** Sıkı mod (requireAll) veya TSA zinciri; iptal verisi zorunlu. */
@@ -374,6 +451,40 @@ class ValidationDataCheckerTest {
         return Arrays.asList(new CertNode("LEAF", "CN=QC A1 1", null, null, false, false, true, false),
                 new CertNode("SUB", "CN=SubRoot A1", null, null, false, false, true, false),
                 new CertNode("ROOT", "CN=Root A", null, null, true, true, true, false));
+    }
+
+    /** CompleteCertificateRefs (özeti eşleşen) ve CertificateValues içinde bulunan CA sertifikası. */
+    private static RelatedCertificateWrapper referenced(String id, String subject, String issuer, boolean trusted) {
+        RelatedCertificateWrapper certificate = certificate(mock(RelatedCertificateWrapper.class), id, subject, issuer,
+                trusted);
+        CertificateRefWrapper ref = mock(CertificateRefWrapper.class);
+        when(ref.getOrigin()).thenReturn(CertificateRefOrigin.COMPLETE_CERTIFICATE_REFS);
+        when(ref.isDigestValuePresent()).thenReturn(true);
+        when(ref.isDigestValueMatch()).thenReturn(true);
+        when(certificate.getReferences()).thenReturn(Collections.singletonList(ref));
+        return certificate;
+    }
+
+    /** T anında geçerli, imzası sağlam sertifika; iptal verisi yok (BES / ES-T gibi esnek mod). */
+    private static <W extends CertificateWrapper> W certificate(W certificate, String id, String subject, String issuer,
+                                                                boolean trusted) {
+        when(certificate.getId()).thenReturn(id);
+        when(certificate.getCertificateDN()).thenReturn(subject);
+        when(certificate.getCertificateIssuerDN()).thenReturn(issuer);
+        when(certificate.getCommonName()).thenReturn(subject.substring(3));
+        when(certificate.getNotBefore()).thenReturn(new Date(T.getTime() - 365 * DAY));
+        when(certificate.getNotAfter()).thenReturn(new Date(T.getTime() + 365 * DAY));
+        when(certificate.isTrusted()).thenReturn(trusted);
+        when(certificate.isSignatureIntact()).thenReturn(true);
+        return certificate;
+    }
+
+    private static List<RejectionCode> codes(List<TrComplianceFinding> findings) {
+        List<RejectionCode> codes = new ArrayList<>();
+        for (TrComplianceFinding finding : findings) {
+            codes.add(finding.getCode());
+        }
+        return codes;
     }
 
     private static CertNode cert(String subject, boolean trusted, boolean selfIssued, boolean intact) {
