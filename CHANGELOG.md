@@ -7,6 +7,8 @@ ve bu proje [Semantic Versioning 2.0.0](https://semver.org/spec/v2.0.0.html) kul
 
 ## [Unreleased]
 
+## [1.3.1] - 2026-10-15
+
 ### Fixed
 - Sıkı referans kuralı, zaman damgası (TSA) zincirinin CA sertifikasını yalnız imzanın
   `CompleteCertificateRefs` / `CertificateValues` alanında arıyordu; zaman damgasının
