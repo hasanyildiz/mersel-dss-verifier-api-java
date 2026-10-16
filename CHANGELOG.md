@@ -7,6 +7,8 @@ ve bu proje [Semantic Versioning 2.0.0](https://semver.org/spec/v2.0.0.html) kul
 
 ## [Unreleased]
 
+## [1.3.2] - 2026-10-16
+
 ### Added
 - Açılış koruması (`ClasspathShadowGuard`): sınıfyolu gölgeleri (`KeyUsageCheck`,
   `SignatureECDSA`) yüklenmemişse uygulama başlamaz. Gölge yalnız uygulama sınıfları
