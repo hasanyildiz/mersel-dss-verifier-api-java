@@ -137,13 +137,13 @@ public class AppliedSuppression {
      * Doğrulamaya giren <em>imzalı doküman</em> byte'larının SHA-256 hash'i
      * (hex). Forensic dispute'ta "tam olarak hangi byte dizisi tolere
      * edildi?" sorusunun cevabı; receiver başka kaynaktan aldığı kopyayla
-     * hash karşılaştırabilir. ECDSA preprocessor sonrası halini ifade eder
-     * (gate tam o byte dizisi üzerinde karar verdiği için).
+     * hash karşılaştırabilir. İmza üreticisinin gönderdiği bayt dizisinin
+     * aynısıdır (doğrulama öncesi belge değiştirilmez).
      */
     private String documentSha256;
 
     /**
-     * Doğrulamaya giren imzalı doküman byte uzunluğu (preprocess sonrası).
+     * Doğrulamaya giren imzalı doküman byte uzunluğu (gönderilen belgeyle aynı).
      * Pratik dispute ve sızdırma tespitinde hash ile birlikte ikincil
      * sinyal — aynı hash farklı uzunluk teorik olarak imkânsız ama
      * forensic format/encoding ipucu sağlar.

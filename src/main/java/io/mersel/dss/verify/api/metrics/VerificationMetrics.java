@@ -18,7 +18,7 @@ import java.util.concurrent.atomic.AtomicLong;
  *
  * <ul>
  *   <li><b>İstek sonuçlanma süreleri</b> — uçtan uca + aşama bazlı
- *       (read → preprocess → build → dss_validate → parse → notify)
+ *       (read → build → dss_validate → parse → notify)
  *       Timer'lar (percentile histogram, application.properties'te
  *       açık). "Bir doğrulama neden yavaş?" sorusu aşama kıran ile
  *       cevaplanır.</li>
@@ -137,7 +137,7 @@ public class VerificationMetrics {
     /**
      * Tek bir doğrulama aşamasının süresini kaydeder — "zaman nerede
      * harcandı?" sorusunun cevabı. Tipik stage değerleri:
-     * {@code read_input}, {@code preprocess}, {@code build_validator},
+     * {@code read_input}, {@code build_validator},
      * {@code dss_validate}, {@code parse_result}, {@code notify}.
      *
      * @param outcome aşama başarılıysa {@code ok}, exception attıysa {@code error}

@@ -15,7 +15,6 @@ import io.mersel.dss.verify.api.models.enums.SignatureType;
 import io.mersel.dss.verify.api.models.enums.VerificationLevel;
 import io.mersel.dss.verify.api.services.certificate.KamusmRootCertificateService;
 import io.mersel.dss.verify.api.services.notification.InvalidSignatureNotifier;
-import io.mersel.dss.verify.api.services.util.EcdsaXmlSignaturePreprocessor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -40,9 +39,6 @@ public class SignatureVerificationService {
 
     @Autowired
     private VerificationConfiguration config;
-
-    @Autowired
-    private EcdsaXmlSignaturePreprocessor ecdsaXmlSignaturePreprocessor;
 
     /**
      * INVALID imzalarda async webhook/Slack bildirim göndericisi.
@@ -88,13 +84,9 @@ public class SignatureVerificationService {
             // Dokümanı oku
             byte[] signedBytes = signedDocument.getBytes();
 
-            // GİB/TÜBİTAK Mali Mühür ECDSA imzaları (DER-encoded) için W3C XMLDSig
-            // uyumluluğunu sağla: SignatureValue içindeki ASN.1 DER SEQUENCE'i raw r||s'e çevir.
-            // Preprocessor sertifika EC değilse veya gerekli koşullar sağlanmazsa no-op döner.
-            if (config.isEcdsaDerPreprocessorEnabled()) {
-                signedBytes = ecdsaXmlSignaturePreprocessor.preprocess(signedBytes);
-            }
-
+            // DER kodlu ECDSA SignatureValue (mali mühür / e-imza üreticileri) belge
+            // değiştirilmeden doğrulanır: Santuario SignatureECDSA gölgesi, bkz.
+            // docs/dss-overrides.md. Belgeyi değiştirmek zaman damgası özetini bozar.
             DSSDocument document = new InMemoryDocument(signedBytes, signedDocument.getOriginalFilename());
 
             // Orijinal doküman varsa (detached signature için)
@@ -141,9 +133,9 @@ public class SignatureVerificationService {
             // (her dispatch kanalı izole), burada ikinci try/catch
             // (Throwable yakalıyor — son perde), originalDocument.getBytes()
             // ayrı try/catch (temp-file IO hatası bildirim akışını
-            // kıramasın). signedBytes ECDSA preprocessor sonrası halini
-            // taşır (imza üreticisinin yolladığı orijinal değil); receiver
-            // forensik analiz için sha256Hex + size üzerinden eşleştirebilir.
+            // kıramasın). signedBytes imza üreticisinin yolladığı baytların
+            // aynısıdır; receiver forensik analiz için sha256Hex + size
+            // üzerinden eşleştirebilir.
             try {
                 if (invalidSignatureNotifier != null) {
                     byte[] originalBytes = null;

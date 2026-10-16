@@ -7,6 +7,31 @@ ve bu proje [Semantic Versioning 2.0.0](https://semver.org/spec/v2.0.0.html) kul
 
 ## [Unreleased]
 
+### Added
+- Açılış koruması (`ClasspathShadowGuard`): sınıfyolu gölgeleri (`KeyUsageCheck`,
+  `SignatureECDSA`) yüklenmemişse uygulama başlamaz. Gölge yalnız uygulama sınıfları
+  bağımlılıklardan önce geldiğinde (`java -jar`, Docker imajı) devreye girer; aksi
+  halde doğrulama kararı sessizce değişirdi.
+
+### Removed
+- `EcdsaXmlSignaturePreprocessor` ve `verification.ecdsa-der-preprocessor-enabled`
+  bayrağı. Doğrulanan bayt dizisi artık imza üreticisinin gönderdiğiyle aynıdır
+  (bildirim / suppression `sha256Hex` değerleri orijinal belgeye aittir). Bayrağı
+  ortam değişkeni veya properties ile verenler için etkisizdir, kaldırılabilir.
+
+### Fixed
+- Zaman damgalı EC (ECDSA) imzalar geçersiz çıkıyordu: `EST_EC256` / `_EC384` /
+  `_EC512`, `ESXL1_MM_EC*` (ve "yeni" sürümleri), `ESA_MM_EC*` (TÜBİTAK kripto
+  süiti; `BES_EC*` etkilenmez). `EcdsaXmlSignaturePreprocessor`, DER kodlu
+  `SignatureValue`'yu doğrulamadan önce belgede raw `r‖s`'ye çeviriyordu; imza
+  zaman damgası özgün `SignatureValue` baytlarını damgaladığı için damganın
+  mesaj özeti tutmuyordu. Hata 0.2.1'den beri vardı; 1.3.0'a kadar TR uyum
+  kapısı göstergeyi `TOTAL_PASSED` bıraktığı için arayüz imzayı geçerli
+  gösteriyordu, 1.3.0 (`MDSS-TR-TIMESTAMP-INVALID`, gösterge tutarlılığı) ile
+  görünür oldu. DER değer artık belge değiştirilmeden doğrulanır: Santuario
+  `SignatureECDSA` sınıfyolu gölgesi (bkz. `docs/dss-overrides.md`). TÜBİTAK
+  paketinde (371 dosya) yalnız bu 12 dosya geçersizden geçerliye döndü.
+
 ## [1.3.1] - 2026-10-15
 
 ### Fixed

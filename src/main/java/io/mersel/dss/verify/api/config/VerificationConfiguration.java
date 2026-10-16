@@ -232,15 +232,6 @@ public class VerificationConfiguration {
     private long revocationFailureCacheMaxSize;
 
     /**
-     * GİB / TÜBİTAK Mali Mühür DER-encoded ECDSA SignatureValue'sini
-     * W3C XMLDSig raw r||s formatına dönüştüren preprocessor'ın aktif/pasif kontrolü.
-     * Emergency kill-switch: <code>false</code> yapılırsa hiç bir XML dokümanına
-     * dokunulmaz (DSS sıkı W3C davranışına geri döner).
-     */
-    @Value("${verification.ecdsa-der-preprocessor-enabled:true}")
-    private boolean ecdsaDerPreprocessorEnabled;
-
-    /**
      * <b>Türkiye-özel XAdES SignedProperties Type URI toleransı.</b>
      *
      * <p>Pratik problem: KamuSM / GİB ekosisteminde yaygın bir grup eski
@@ -607,14 +598,6 @@ public class VerificationConfiguration {
 
     public void setRevocationFailureCacheMaxSize(long revocationFailureCacheMaxSize) {
         this.revocationFailureCacheMaxSize = revocationFailureCacheMaxSize;
-    }
-
-    public boolean isEcdsaDerPreprocessorEnabled() {
-        return ecdsaDerPreprocessorEnabled;
-    }
-
-    public void setEcdsaDerPreprocessorEnabled(boolean ecdsaDerPreprocessorEnabled) {
-        this.ecdsaDerPreprocessorEnabled = ecdsaDerPreprocessorEnabled;
     }
 
     public boolean isTrLegacyXadesToleranceEnabled() {

@@ -52,7 +52,6 @@ import io.mersel.dss.verify.api.services.certificate.RequestTrustContext;
 import io.mersel.dss.verify.api.services.compliance.TrComplianceChecker;
 import io.mersel.dss.verify.api.services.compliance.TrComplianceFinding;
 import io.mersel.dss.verify.api.services.notification.InvalidSignatureNotifier;
-import io.mersel.dss.verify.api.services.util.EcdsaXmlSignaturePreprocessor;
 import io.mersel.dss.verify.api.services.util.CertificateMaterialExtractor;
 import io.mersel.dss.verify.api.services.util.SignatureEvidenceExtractor;
 import org.bouncycastle.cms.CMSSignedData;
@@ -103,9 +102,6 @@ public class AdvancedSignatureVerificationService {
      */
     @Autowired
     private volatile ActivePolicyStore activePolicyStore;
-
-    @Autowired
-    private EcdsaXmlSignaturePreprocessor ecdsaXmlSignaturePreprocessor;
 
     @Autowired
     private LegacyTurkishXadesTypeUriDetector legacyTrXadesDetector;
@@ -511,12 +507,9 @@ public class AdvancedSignatureVerificationService {
 
             signedBytes = signedDocument.getBytes();
 
-            // GİB/TÜBİTAK Mali Mühür ECDSA imzaları (DER-encoded) için W3C XMLDSig
-            // uyumluluğunu sağla: SignatureValue içindeki ASN.1 DER SEQUENCE'i raw r||s'e çevir.
-            // Preprocessor sertifika EC değilse veya gerekli koşullar sağlanmazsa no-op döner.
-            if (config.isEcdsaDerPreprocessorEnabled()) {
-                signedBytes = ecdsaXmlSignaturePreprocessor.preprocess(signedBytes);
-            }
+            // DER kodlu ECDSA SignatureValue (mali mühür / e-imza üreticileri) belge
+            // değiştirilmeden doğrulanır: Santuario SignatureECDSA gölgesi, bkz.
+            // docs/dss-overrides.md. Belgeyi değiştirmek zaman damgası özetini bozar.
 
             DSSDocument document = new InMemoryDocument(signedBytes, signedFileName);
 
@@ -534,7 +527,7 @@ public class AdvancedSignatureVerificationService {
                 detachedContents.add(detachedContent);
             }
 
-            // Aşama: read_input (multipart oku + ECDSA preprocess + detached oku) bitti.
+            // Aşama: read_input (multipart oku + detached oku) bitti.
             stageStartNanos = recordStage("read_input", stageStartNanos);
 
             // Validator oluştur
@@ -630,10 +623,9 @@ public class AdvancedSignatureVerificationService {
             // INVALID ise konfigüre edilmiş webhook/Slack kanallarına async
             // bildirim gönder. Best-effort: notifier kapalıysa veya URL set
             // edilmemişse no-op; exception atarsa doğrulama akışı
-            // etkilenmeden devam eder. signedBytes parametresi ECDSA
-            // preprocessor sonrası halini taşıdığı için imza üreticisinin
-            // gönderdiği orijinalle birebir eşleşmeyebilir; receiver içerik
-            // forensik analizi için sha256Hex + size üzerinden de eşleştirme
+            // etkilenmeden devam eder. signedBytes imza üreticisinin
+            // gönderdiği baytların aynısıdır; receiver içerik forensik
+            // analizi için sha256Hex + size üzerinden de eşleştirme
             // yapabilir.
             //
             // ÜÇ KATMAN DEFENSE: (1) notifier'ın kendi içindeki outer
@@ -697,7 +689,7 @@ public class AdvancedSignatureVerificationService {
 
     /**
      * Doğrulama akışı bir exception ile patladığında (örn. bozuk XML, eksik
-     * namespace, ECDSA preprocessor hatası, multipart IO hatası), Slack/
+     * namespace, multipart IO hatası), Slack/
      * webhook kanalına yine de bildirim gider — operatör başarısız
      * doğrulama isteklerini de chat'te canlı görsün diye.
      *

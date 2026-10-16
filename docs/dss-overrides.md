@@ -9,6 +9,7 @@ yerine geçer.
 | Gölge sınıf | DSS sürümü | Değişiklik |
 | --- | --- | --- |
 | `eu.europa.esig.dss.validation.process.bbb.xcv.sub.checks.KeyUsageCheck` | 6.3 | İmzacı sertifikası (`SubContext.SIGNING_CERT`) ve birden fazla beklenen değer varsa `<KeyUsage>` listesi **VE (AND)** olarak değerlendirilir: tüm bit'ler sertifikada bulunmalıdır. Mali mühür sertifikasında (`SignerCertificateProfileDetector` → `MALI_MUHUR`) listedeki `nonRepudiation` aranmaz. CA/TSA zincir sertifikaları ve tek değerli listeler orijinal OR semantiğini korur. |
+| `org.apache.xml.security.algorithms.implementations.SignatureECDSA` | xmlsec 3.0.6 (DSS 6.3 bağımlılığı) | `engineVerify`: ECDSA `SignatureValue` uzunlukları birebir tutan bir ASN.1 DER `SEQUENCE { INTEGER r, INTEGER s }` ise kanonik DER olarak JCA'ya verilir; değilse orijinal raw `r‖s` → DER dönüşümü uygulanır. İmza üretimi değişmez. Bkz. [DER kodlu ECDSA imza değeri](#der-kodlu-ecdsa-imza-değeri). |
 
 ## Neden
 
@@ -48,6 +49,29 @@ için birden fazla `<Id>` listelendiğinde VE semantiği sağlamaya devam eder:
 ayrılır (bkz. README, politika profilleri); ikisi de hem mali mühür hem
 NES/e-imza imzalarını doğrular.
 
+## DER kodlu ECDSA imza değeri
+
+W3C XMLDSig (RFC 4051 §3.4.1) ECDSA `SignatureValue`'sini raw `r‖s` olarak
+ister. Mali mühür / e-imza üreticilerinin bir kısmı (TÜBİTAK kripto süitinin
+`*_EC256` / `_EC384` / `_EC512` örnekleri dahil) JCA çıktısını, yani ASN.1 DER
+`SEQUENCE`'ı yazar. Santuario değeri her zaman raw sanıp ikiye böler; imza
+`SIG_CRYPTO_FAILURE` ile düşer.
+
+1.3.1'e kadar `EcdsaXmlSignaturePreprocessor` belgedeki `SignatureValue`'yu
+doğrulamadan önce raw'a çeviriyordu. İmza zaman damgası (ES-T ve üstü) özgün
+`SignatureValue` baytlarını damgaladığından bu yeniden yazım damganın mesaj
+özetini bozuyordu: zaman damgalı her EC imza geçersizdi (BES geçerliydi).
+1.3.0 öncesinde TR uyum kapısı bu hatayı `TOTAL_PASSED` göstergesiyle
+geçerli gösteriyordu; 1.3.0 göstergeyi karara bağlayınca görünür oldu.
+
+Gölge belgeyi değiştirmez. Etiketleri ve uzunlukları birebir tutan (sonda
+fazla bayt olmayan) iki tamsayılı bir `SEQUENCE` DER sayılır; raw `r‖s`'nin bu
+kalıba tesadüfen uyması pratikte imkânsızdır. Tamsayılar, kaldırılan
+preprocessor'daki gibi işaretsiz büyüklük olarak okunur ve kanonik DER'e
+çevrilir: sabit genişlikli (gereksiz baştaki sıfırlı veya işaret baytı eksik)
+kodlama üreten imzalayıcılar da doğrulanır. Kurcalanmış değer JCA
+doğrulamasında düşer.
+
 ## Bakım kuralları
 
 - Her gölge sınıfın başlığında sürüm kılıdı vardır (DSS 6.3). `pom.xml`
@@ -59,3 +83,12 @@ NES/e-imza imzalarını doğrular.
 - `src/test/java` altındaki aynı paketli testler gölgenin etkin olduğunu
   kanıtlar: `signer_allOf_exactlyOneBitPresent_fails` orijinal DSS sınıfıyla
   geçemezdi.
+  `SignatureECDSAShadowTest.derSignatureValue_verifiesWithoutChangingTheDocument`
+  orijinal Santuario sınıfıyla geçemezdi.
+- `ClasspathShadowGuard` açılışta her gölgenin uygulama sınıflarıyla aynı
+  yerden yüklendiğini doğrular; orijinal yüklenmişse (ör. bağımlılıkları önce
+  veren bir sınıfyolu) uygulama başlamaz. Yeni gölge eklendiğinde
+  `ClasspathShadowGuard.SHADOWS` listesine de eklenir.
+- `SignatureECDSA` DSS'in değil xmlsec'in sınıfıdır: DSS yükseltmesi xmlsec
+  sürümünü değiştirirse (`mvn dependency:tree | grep xmlsec`) aynı karşılaştırma
+  bu kopya için de yapılır.

@@ -189,7 +189,7 @@ public class LegacyTurkishXadesTypeUriDetector {
      *       döner.</li>
      * </ol>
      *
-     * @param xmlBytes orijinal (preprocess'sız) XML byte'ları
+     * @param xmlBytes gönderilen XML byte'ları
      * @return tespit edilen patoloji veya <code>null</code> (hiçbir bilinen
      *         üretici hatası eşleşmiyor)
      */
